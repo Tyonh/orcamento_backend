@@ -2,11 +2,10 @@ const express = require("express");
 const exceljs = require("exceljs");
 const path = require("path");
 const cors = require("cors");
-const fs = require("fs");
 const sqlite3 = require("sqlite3");
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 const DB_PATH = path.join(__dirname, "produtos.db");
 
@@ -14,15 +13,13 @@ app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+// Rota de busca de produtos (intocada)
 app.get("/api/produtos/search", (req, res) => {
   const termoBusca = (req.query.search || "").toLowerCase().trim();
 
-  // Não busca se o termo for muito curto
   if (termoBusca.length < 2) {
     return res.json([]);
   }
-
-  // Conecta ao BD em modo de LEITURA
   const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READONLY, (err) => {
     if (err) {
       console.error("Erro ao conectar ao SQLite:", err);
@@ -30,11 +27,7 @@ app.get("/api/produtos/search", (req, res) => {
     }
   });
 
-  // Prepara o termo para a consulta LIKE (procura em qualquer parte do nome)
   const termoLike = `%${termoBusca}%`;
-
-  // Executa a consulta
-  // Usamos 'nome COLLATE NOCASE LIKE ?' para busca case-insensitive
   const sql =
     "SELECT nome FROM produtos WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
 
@@ -43,11 +36,7 @@ app.get("/api/produtos/search", (req, res) => {
       console.error("Erro na consulta SQL:", err);
       return res.status(500).json({ message: "Erro ao buscar produtos." });
     }
-
-    // Retorna os resultados
     res.json(rows);
-
-    // Fecha a conexão com o BD
     db.close();
   });
 });
@@ -70,7 +59,7 @@ app.post("/salvar-orcamento", async (req, res) => {
   // Proteção contra 'undefined' se o JS do frontend falhar
   const produtos = Array.isArray(dadosDoFormulario["produto_nome"])
     ? dadosDoFormulario["produto_nome"]
-    : []; // <-- Mudei para array vazio
+    : [];
 
   const valores = Array.isArray(dadosDoFormulario["valor_unitario"])
     ? dadosDoFormulario["valor_unitario"]
@@ -94,14 +83,15 @@ app.post("/salvar-orcamento", async (req, res) => {
 
   try {
     const workbook = new exceljs.Workbook();
+    // Para o Vercel, é melhor usar process.cwd() para garantir o caminho
     const templatePath = path.join(
-      __dirname,
+      process.cwd(), // <-- Mudança para Vercel
       "templates",
       "template_orcamento.xlsx"
     );
     await workbook.xlsx.readFile(templatePath);
 
-    const worksheet = workbook.getWorksheet("Sheet1"); // <-- ATENÇÃO: Verifique o nome da aba
+    const worksheet = workbook.getWorksheet("Sheet1");
     if (!worksheet) {
       throw new Error(
         "Não foi possível encontrar a planilha 'Sheet1'. Verifique o nome da aba no seu template."
@@ -134,22 +124,18 @@ app.post("/salvar-orcamento", async (req, res) => {
       if (numItens > 1) {
         const linhasParaAdicionar = numItens - 1;
 
-        // Cria um array de arrays vazios. Ex: se linhasParaAdicionar = 2, cria [ [], [] ]
-        // O comprimento (length) deste array determina quantas linhas inserir.
         const arrayDeLinhasVazias = Array.from(
           { length: linhasParaAdicionar },
           () => []
-        ); // Agora o segundo argumento é um array, que é "iterável"
+        );
 
         if (numItens > 1) {
           const linhasParaAdicionar = numItens - 1;
 
-          // Cria um array de arrays vazios. Ex: se linhasParaAdicionar = 2, cria [ [], [] ]
-          // O comprimento (length) deste array determina quantas linhas inserir.
           const arrayDeLinhasVazias = Array.from(
             { length: linhasParaAdicionar },
             () => []
-          ); // Agora o segundo argumento é um array, que é "iterável"
+          );
 
           worksheet.insertRows(
             linhaInicialItens + 1,
@@ -184,36 +170,48 @@ app.post("/salvar-orcamento", async (req, res) => {
         mapearCondicao[condicao_pagamento] || condicao_pagamento;
     }
 
-    // 6. Salvar o novo arquivo
-    const outputDir = path.join(__dirname, "orcamentos_gerados");
+    // --- INÍCIO DA MODIFICAÇÃO PARA DOWNLOAD DIRETO ---
 
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
-
+    // 6. Gerar o nome do arquivo (em memória)
     const nomeClienteFormatado = (cliente_nome || "orcamento")
       .replace(/[^a-z0-9]/gi, "_")
       .toLowerCase();
     const nomeArquivoFinal = `orcamento_${nomeClienteFormatado}_${Date.now()}.xlsx`;
-    const outputPath = path.join(outputDir, nomeArquivoFinal);
 
-    await workbook.xlsx.writeFile(outputPath);
+    console.log(
+      `Orçamento gerado em memória: ${nomeArquivoFinal}. Enviando para download...`
+    );
 
-    console.log(`Orçamento gerado com sucesso: ${nomeArquivoFinal}`);
+    // 7. Definir os cabeçalhos da resposta para o navegador
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${nomeArquivoFinal}"`
+    );
 
-    res.status(200).json({
-      message: "Orçamento gerado com sucesso!",
-      file: nomeArquivoFinal,
-    });
+    // 8. Enviar o arquivo Excel direto para o navegador
+    await workbook.xlsx.write(res);
+    res.end();
+
+    // --- FIM DA MODIFICAÇÃO ---
   } catch (error) {
     console.error("Erro ao gerar o orçamento:", error);
-    res.status(500).json({
-      message: "Erro ao processar o orçamento.",
-      details: error.message,
-    });
+    // Adicionado para evitar erro caso o stream de download já tenha começado
+    if (!res.headersSent) {
+      res.status(500).json({
+        message: "Erro ao processar o orçamento.",
+        details: error.message,
+      });
+    }
   }
 });
 
 app.listen(port, () => {
   console.log(`Backend rodando em http://localhost:${port}`);
 });
+
+// Adicionado para Vercel
+module.exports = app;
