@@ -1,44 +1,106 @@
 const express = require("express");
 const exceljs = require("exceljs");
 const path = require("path");
+const fs = require("fs");
 const cors = require("cors");
 const sqlite3 = require("sqlite3");
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-const DB_PATH = path.join(__dirname, "produtos.db");
+const PROD_DB_PATH = path.join(__dirname, "produtos.db");
+const CLI_DB_PATH = path.join(__dirname, "clientes.db");
+
+// Helper: consulta genérica no SQLite retornando Promise
+function queryDatabase(dbPath, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    // Verifica se o arquivo do DB existe antes de tentar abrir
+    if (!fs.existsSync(dbPath)) {
+      return reject(new Error(`Database file not found: ${dbPath}`));
+    }
+
+    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
+      if (err) return reject(err);
+    });
+
+    db.all(sql, params, (err, rows) => {
+      if (err) {
+        db.close();
+        return reject(err);
+      }
+      resolve(rows || []);
+      db.close();
+    });
+  });
+}
 
 app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 // Rota de busca de produtos (intocada)
-app.get("/api/produtos/search", (req, res) => {
+app.get("/api/produtos/search", async (req, res) => {
   const termoBusca = (req.query.search || "").toLowerCase().trim();
 
   if (termoBusca.length < 2) {
     return res.json([]);
   }
-  const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READONLY, (err) => {
-    if (err) {
-      console.error("Erro ao conectar ao SQLite:", err);
-      return res.status(500).json({ message: "Erro de banco de dados." });
-    }
-  });
 
-  const termoLike = `%${termoBusca}%`;
-  const sql =
-    "SELECT nome FROM produtos WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
+  try {
+    const termoLike = `%${termoBusca}%`;
+    const sql =
+      "SELECT nome FROM produtos WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
+    const rows = await queryDatabase(PROD_DB_PATH, sql, [termoLike]);
+    return res.json(rows);
+  } catch (err) {
+    console.error("Erro na consulta de produtos:", err);
+    return res.status(500).json({ message: "Erro ao buscar produtos." });
+  }
+});
 
-  db.all(sql, [termoLike], (err, rows) => {
-    if (err) {
-      console.error("Erro na consulta SQL:", err);
-      return res.status(500).json({ message: "Erro ao buscar produtos." });
+// Rota de busca de clientes (autocomplete)
+// Observação: assume-se que exista uma tabela `clientes` com coluna `nome`.
+app.get("/api/clientes/search", async (req, res) => {
+  const termoBusca = (req.query.search || "").toLowerCase().trim();
+
+  if (termoBusca.length < 2) {
+    return res.json([]);
+  }
+
+  try {
+    const termoLike = `%${termoBusca}%`;
+    const sql =
+      "SELECT nome FROM clientes WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
+
+    // Se o DB de clientes não existir, tentamos usar o produtos.db como fallback
+    let dbToUse = CLI_DB_PATH;
+    if (!fs.existsSync(dbToUse)) {
+      console.warn(
+        `Arquivo ${dbToUse} não encontrado. Tentando usar ${PROD_DB_PATH} como fallback.`
+      );
+      if (fs.existsSync(PROD_DB_PATH)) {
+        dbToUse = PROD_DB_PATH;
+      } else {
+        console.warn(
+          `Nenhum arquivo de banco de dados disponível (${CLI_DB_PATH}, ${PROD_DB_PATH}). Retornando [] para o autocomplete de clientes.`
+        );
+        return res.json([]);
+      }
     }
-    res.json(rows);
-    db.close();
-  });
+
+    const rows = await queryDatabase(dbToUse, sql, [termoLike]);
+    return res.json(rows);
+  } catch (err) {
+    console.error("Erro na consulta de clientes:", err);
+    // Se o erro for que o arquivo não existe, devolvemos array vazio para evitar quebrar o autocomplete
+    if (
+      err &&
+      /not found|ENOENT|unable to open database file/i.test(err.message)
+    ) {
+      return res.json([]);
+    }
+    return res.status(500).json({ message: "Erro ao buscar clientes." });
+  }
 });
 
 console.log("Backend iniciado. Aguardando envios de formulário...");
@@ -50,11 +112,21 @@ const mapearCondicao = {
 };
 
 app.post("/salvar-orcamento", async (req, res) => {
+  console.log("\n=== NOVA REQUISIÇÃO DE ORÇAMENTO ===");
+  console.log("Headers recebidos:", req.headers);
+
   const dadosDoFormulario = req.body;
-  console.log("--- DADOS RECEBIDOS DO FORMULÁRIO ---");
-  console.log(dadosDoFormulario);
+  console.log("\n--- DADOS RECEBIDOS DO FORMULÁRIO ---");
+  console.log("Dados brutos:", JSON.stringify(dadosDoFormulario, null, 2));
+  console.log("\nCampos encontrados:");
+  Object.keys(dadosDoFormulario).forEach((key) => {
+    console.log(`${key}:`, dadosDoFormulario[key]);
+  });
 
   const { cliente_nome, condicao_pagamento } = dadosDoFormulario;
+  console.log("\nDados principais:");
+  console.log("- Cliente:", cliente_nome);
+  console.log("- Condição:", condicao_pagamento);
 
   // Proteção contra 'undefined' se o JS do frontend falhar
   const produtos = Array.isArray(dadosDoFormulario["produto_nome"])
@@ -69,6 +141,11 @@ app.post("/salvar-orcamento", async (req, res) => {
     ? dadosDoFormulario["quantidade"]
     : [];
 
+  console.log("\nDados dos produtos:");
+  console.log("- Nomes:", produtos);
+  console.log("- Quantidades:", quantidades);
+  console.log("- Valores:", valores);
+
   // Filtra itens vazios
   const itensValidos = produtos
     .map((nome, index) => ({
@@ -79,7 +156,14 @@ app.post("/salvar-orcamento", async (req, res) => {
     .filter((p) => p.nome && p.nome.trim() !== "");
 
   const numItens = itensValidos.length;
-  console.log(`Número de itens válidos recebidos: ${numItens}`);
+  console.log("\nItens após processamento:");
+  console.log(`- Total de itens válidos: ${numItens}`);
+  console.log("- Itens detalhados:");
+  itensValidos.forEach((item, idx) => {
+    console.log(
+      `  ${idx + 1}. ${item.nome} (${item.qtd} x R$ ${item.valor.toFixed(2)})`
+    );
+  });
 
   try {
     const workbook = new exceljs.Workbook();
@@ -179,8 +263,41 @@ app.post("/salvar-orcamento", async (req, res) => {
     const nomeArquivoFinal = `orcamento_${nomeClienteFormatado}_${Date.now()}.xlsx`;
 
     console.log(
-      `Orçamento gerado em memória: ${nomeArquivoFinal}. Enviando para download...`
+      `Orçamento gerado: ${nomeArquivoFinal}. Salvando e enviando para download...`
     );
+
+    // Garante que a pasta orcamentos_gerados existe
+    const pastaSalvar = path.join(__dirname, "orcamentos_gerados");
+    const caminhoArquivo = path.join(pastaSalvar, nomeArquivoFinal);
+    console.log(`Tentando criar/verificar pasta em: ${pastaSalvar}`);
+
+    try {
+      if (!fs.existsSync(pastaSalvar)) {
+        console.log(`Pasta não existe, criando...`);
+        fs.mkdirSync(pastaSalvar, { recursive: true });
+        console.log(`Pasta criada com sucesso`);
+      } else {
+        console.log(`Pasta já existe`);
+      }
+
+      // Salva o arquivo localmente
+      console.log(`Tentando salvar arquivo em: ${caminhoArquivo}`);
+
+      await workbook.xlsx.writeFile(caminhoArquivo);
+      console.log(`Arquivo salvo com sucesso em: ${caminhoArquivo}`);
+
+      // Verifica se o arquivo foi realmente criado
+      if (fs.existsSync(caminhoArquivo)) {
+        console.log(`Confirmado: arquivo existe no disco`);
+        const stats = fs.statSync(caminhoArquivo);
+        console.log(`Tamanho do arquivo: ${stats.size} bytes`);
+      } else {
+        throw new Error("Arquivo não encontrado após tentativa de escrita");
+      }
+    } catch (err) {
+      console.error("Erro ao salvar arquivo:", err);
+      throw err; // Re-lança o erro para ser pego pelo catch externo
+    }
 
     // 7. Definir os cabeçalhos da resposta para o navegador
     res.setHeader(
@@ -192,9 +309,23 @@ app.post("/salvar-orcamento", async (req, res) => {
       `attachment; filename="${nomeArquivoFinal}"`
     );
 
-    // 8. Enviar o arquivo Excel direto para o navegador
-    await workbook.xlsx.write(res);
-    res.end();
+    // 8. Envia o arquivo salvo para download
+    // Use o caminho absoluto diretamente (não passe 'root' para evitar junção indevida em Windows)
+    res.sendFile(caminhoArquivo, (err) => {
+      if (err) {
+        console.error("Erro ao enviar arquivo:", err);
+        if (!res.headersSent) {
+          res.status(500).json({
+            message: "Erro ao enviar o arquivo para download.",
+            details: err.message,
+          });
+        }
+      } else {
+        console.log(
+          `Arquivo enviado com sucesso para download: ${caminhoArquivo}`
+        );
+      }
+    });
 
     // --- FIM DA MODIFICAÇÃO ---
   } catch (error) {
