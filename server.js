@@ -10,6 +10,14 @@ const port = process.env.PORT || 3000;
 
 const PROD_DB_PATH = path.join(__dirname, "produtos.db");
 const CLI_DB_PATH = path.join(__dirname, "clientes.db");
+// Layout configurável do template (ajuste se seu template mudar)
+const CLIENT_CELL = "A6"; // célula onde o nome do cliente será escrito
+const ITEM_START_ROW = 9; // primeira linha disponível para itens
+const COL_CODE = "A"; // coluna do código do produto
+const COL_DESC = "B"; // coluna da descrição
+const COL_QTD = "C"; // coluna quantidade
+const COL_VAL_UNIT = "D"; // coluna valor unitário
+const COL_VAL_TOTAL = "E"; // coluna valor total por linha
 
 // Helper: consulta genérica no SQLite retornando Promise
 function queryDatabase(dbPath, sql, params = []) {
@@ -49,7 +57,7 @@ app.get("/api/produtos/search", async (req, res) => {
   try {
     const termoLike = `%${termoBusca}%`;
     const sql =
-      "SELECT nome FROM produtos WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
+      "SELECT codigo, descricao FROM produtos WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
     const rows = await queryDatabase(PROD_DB_PATH, sql, [termoLike]);
     return res.json(rows);
   } catch (err) {
@@ -109,6 +117,16 @@ const mapearCondicao = {
   avista: "À vista",
   "30d": "Cartão de Crédito",
   "60d": "Boleto",
+  "30/60d": "Boleto - 30/60d",
+  "30/60/90d": "Boleto - 30/60/90d",
+  "30/60/90/120d": "Boleto - 30/60/90/120d",
+  "Cartao de Debito": "Boleto - Cartao de Debito",
+  "Cartao de Credito S/Juros": "Cartao de Credito S/Juros",
+  "Cartao 1x/Juros": "Cartao de Credito 1x/Juros",
+  "Cartao 2x/Juros": "Cartao de Credito 2x/Juros",
+  "Cartao 3x/Juros": "Cartao de Credito 3x/Juros",
+  "Boleto - c/Entrada": "Boleto - c/Entrada",
+  "Cartao de Debito c/Entrada": "Cartao de Debito c/Entrada",
 };
 
 app.post("/salvar-orcamento", async (req, res) => {
@@ -183,24 +201,32 @@ app.post("/salvar-orcamento", async (req, res) => {
     }
 
     // 1. Preenche Cliente
-    worksheet.getCell("A6").value = cliente_nome;
+    worksheet.getCell(CLIENT_CELL).value = cliente_nome;
 
     // 2. Define a linha inicial dos itens
-    const linhaInicialItens = 8;
+    const linhaInicialItens = ITEM_START_ROW;
 
     // --- LÓGICA ATUALIZADA E MAIS SEGURA ---
 
     if (numItens === 0) {
-      // Se 0 itens, limpa a linha 8 do template e preenche 9 e 10
+      // Se 0 itens, escreve uma linha indicando que não há itens
       console.log("Nenhum item válido foi adicionado.");
-      worksheet.getRow(linhaInicialItens).getCell("A").value = "Nenhum item";
-      worksheet.getRow(linhaInicialItens).getCell("B").value = 0;
-      worksheet.getRow(linhaInicialItens).getCell("C").value = 0;
-      worksheet.getRow(linhaInicialItens).getCell("D").value = 0;
+      // Código vazio, descrição "Nenhum item", quant e valores 0
+      worksheet.getCell(`${COL_CODE}${linhaInicialItens}`).value = "";
+      worksheet.getCell(`${COL_DESC}${linhaInicialItens}`).value =
+        "Nenhum item";
+      worksheet.getCell(`${COL_QTD}${linhaInicialItens}`).value = 0;
+      worksheet.getCell(`${COL_VAL_UNIT}${linhaInicialItens}`).value = 0;
+      worksheet.getCell(`${COL_VAL_TOTAL}${linhaInicialItens}`).value = 0;
 
-      worksheet.getCell("D9").value = 0; // Total
-      worksheet.getCell("A10").value =
-        mapearCondicao[condicao_pagamento] || condicao_pagamento; // Condições
+      // Total ficará na linha imediatamente após a linha de itens
+      const linhaTotal = linhaInicialItens + 1;
+      worksheet.getCell(`${COL_VAL_TOTAL}${linhaTotal}`).value = {
+        formula: `0`,
+      };
+      // Escreve a condição de pagamento uma linha abaixo do total
+      worksheet.getCell(`A${linhaTotal + 1}`).value =
+        mapearCondicao[condicao_pagamento] || condicao_pagamento;
     } else {
       // Se 1 ou MAIS itens, executa a lógica de loop
 
@@ -229,28 +255,52 @@ app.post("/salvar-orcamento", async (req, res) => {
         }
       }
 
-      // 4. Preenche os dados dos itens
-      itensValidos.forEach((item, index) => {
+      // 4. Preenche os dados dos itens (buscando também o código no DB de produtos)
+      for (let index = 0; index < itensValidos.length; index++) {
+        const item = itensValidos[index];
         const linhaNum = linhaInicialItens + index;
-        const linha = worksheet.getRow(linhaNum);
 
-        linha.getCell("A").value = item.nome;
-        linha.getCell("B").value = item.qtd;
-        linha.getCell("C").value = item.valor;
-        linha.getCell("D").value = { formula: `B${linhaNum}*C${linhaNum}` };
-      });
+        // Busca o código do produto no DB (caso exista)
+        let codigoProduto = "";
+        try {
+          const rows = await queryDatabase(
+            PROD_DB_PATH,
+            "SELECT codigo FROM produtos WHERE nome = ? LIMIT 1",
+            [item.nome]
+          );
+          if (rows && rows.length > 0 && rows[0].codigo) {
+            codigoProduto = rows[0].codigo;
+          }
+        } catch (err) {
+          // se houver erro na busca do código, apenas logamos e seguimos
+          console.warn(
+            `Não foi possível obter código para produto '${item.nome}':`,
+            err.message
+          );
+        }
 
-      // 5. Preenche os campos "móveis"
-      const linhaInicialTotal = 9;
-      const linhaDoTotal = linhaInicialTotal + (numItens - 1);
+        worksheet.getCell(`${COL_CODE}${linhaNum}`).value = codigoProduto;
+        worksheet.getCell(`${COL_DESC}${linhaNum}`).value = item.nome;
+        worksheet.getCell(`${COL_QTD}${linhaNum}`).value = item.qtd;
+        worksheet.getCell(`${COL_VAL_UNIT}${linhaNum}`).value = item.valor;
+        worksheet.getCell(`${COL_VAL_TOTAL}${linhaNum}`).value = {
+          formula: `${COL_QTD}${linhaNum}*${COL_VAL_UNIT}${linhaNum}`,
+        };
+      }
+
+      // 5. Preenche os campos "móveis": total e condição de pagamento
       const ultimaLinhaItem = linhaInicialItens + numItens - 1;
-      worksheet.getCell(`D${linhaDoTotal}`).value = {
-        formula: `SUM(D${linhaInicialItens}:D${ultimaLinhaItem})`,
+      const linhaTotal = ultimaLinhaItem + 1; // linha imediatamente abaixo dos itens
+
+      worksheet.getCell(`${COL_VAL_TOTAL}${linhaTotal}`).value = {
+        formula: `SUM(${COL_VAL_TOTAL}${linhaInicialItens}:${COL_VAL_TOTAL}${ultimaLinhaItem})`,
       };
 
-      const linhaInicialCondicoes = 10;
-      const linhaDasCondicoes = linhaInicialCondicoes + (numItens - 1);
-      worksheet.getCell(`A${linhaDasCondicoes}`).value =
+      // Escreve a label TOTAL na coluna de valor unitário (coluna anterior à total)
+      worksheet.getCell(`${COL_VAL_UNIT}${linhaTotal}`).value = "TOTAL:";
+
+      // Condição de pagamento fixada uma linha abaixo do total
+      worksheet.getCell(`A${linhaTotal + 1}`).value =
         mapearCondicao[condicao_pagamento] || condicao_pagamento;
     }
 
