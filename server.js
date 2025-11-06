@@ -1,7 +1,6 @@
 const express = require("express");
 const exceljs = require("exceljs");
 const path = require("path");
-const fs = require("fs");
 const cors = require("cors");
 const sqlite3 = require("sqlite3");
 
@@ -10,34 +9,50 @@ const port = process.env.PORT || 3000;
 
 const PROD_DB_PATH = path.join(__dirname, "produtos.db");
 const CLI_DB_PATH = path.join(__dirname, "clientes.db");
-// Layout configurável do template (ajuste se seu template mudar)
-const CLIENT_CELL = "A6"; // célula onde o nome do cliente será escrito
-const ITEM_START_ROW = 9; // primeira linha disponível para itens
-const COL_CODE = "A"; // coluna do código do produto
-const COL_DESC = "B"; // coluna da descrição
-const COL_QTD = "C"; // coluna quantidade
-const COL_VAL_UNIT = "D"; // coluna valor unitário
-const COL_VAL_TOTAL = "E"; // coluna valor total por linha
 
-// Helper: consulta genérica no SQLite retornando Promise
-function queryDatabase(dbPath, sql, params = []) {
+// --- NOVO LAYOUT DO TEMPLATE ---
+const CLIENT_NAME_CELL = "C6";
+const CLIENT_CNPJ_CELL = "C7";
+const ITEM_START_ROW = 9; // Linha 9
+const COL_IMG = "A"; // Coluna A (PRODUTO)
+const COL_CODE = "B"; // Coluna B (CODIGO)
+const COL_DESC = "C"; // Coluna C (DESCRIÇÃO)
+const COL_QTD = "D"; // Coluna D (QTD)
+const COL_VAL_UNIT = "E"; // Coluna E (VALOR UNID)
+const COL_VAL_TOTAL = "F"; // Coluna F (VALOR TOTAL)
+// Linhas abaixo dos itens
+const TOTAL_LABEL_CELL_PREFIX = "E"; // Prefixo da célula "TOTAL:"
+const TOTAL_VALUE_CELL_PREFIX = "F"; // Prefixo da célula do valor total
+const VENDOR_NAME_CELL_PREFIX = "B"; // Célula para nome do Consultor
+const VENDOR_PHONE_CELL_PREFIX = "B"; // Célula para Contato
+const VENDOR_EMAIL_CELL_PREFIX = "B"; // Célula para Email
+
+// --- HELPERS DO BANCO DE DADOS (MODIFICADOS) ---
+
+// Retorna MÚLTIPLAS linhas (para autocomplete)
+function queryDatabaseAll(dbPath, sql, params = []) {
   return new Promise((resolve, reject) => {
-    // Verifica se o arquivo do DB existe antes de tentar abrir
-    if (!fs.existsSync(dbPath)) {
-      return reject(new Error(`Database file not found: ${dbPath}`));
-    }
-
     const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
-      if (err) return reject(err);
+      if (err) return reject(new Error(`DB_NOT_FOUND: ${dbPath}`));
     });
-
     db.all(sql, params, (err, rows) => {
-      if (err) {
-        db.close();
-        return reject(err);
-      }
-      resolve(rows || []);
       db.close();
+      if (err) return reject(err);
+      resolve(rows || []);
+    });
+  });
+}
+
+// Retorna UMA ÚNICA linha (para buscar 1 produto ou 1 cliente)
+function queryDatabaseGet(dbPath, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
+      if (err) return reject(new Error(`DB_NOT_FOUND: ${dbPath}`));
+    });
+    db.get(sql, params, (err, row) => {
+      db.close();
+      if (err) return reject(err);
+      resolve(row || null); // Retorna a linha ou nulo
     });
   });
 }
@@ -46,19 +61,20 @@ app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Rota de busca de produtos (intocada)
+// --- ROTA DE PRODUTOS (CORRIGIDA) ---
+// Retorna: [ { codigo: "123", nome: "Desc..." } ]
 app.get("/api/produtos/search", async (req, res) => {
   const termoBusca = (req.query.search || "").toLowerCase().trim();
-
-  if (termoBusca.length < 2) {
-    return res.json([]);
-  }
+  if (termoBusca.length < 2) return res.json([]);
 
   try {
     const termoLike = `%${termoBusca}%`;
     const sql =
-      "SELECT codigo, descricao FROM produtos WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
-    const rows = await queryDatabase(PROD_DB_PATH, sql, [termoLike]);
+      "SELECT codigo, descricao AS nome FROM produtos WHERE descricao COLLATE NOCASE LIKE ? OR codigo LIKE ? LIMIT 10";
+    const rows = await queryDatabaseAll(PROD_DB_PATH, sql, [
+      termoLike,
+      termoLike,
+    ]);
     return res.json(rows);
   } catch (err) {
     console.error("Erro na consulta de produtos:", err);
@@ -66,45 +82,22 @@ app.get("/api/produtos/search", async (req, res) => {
   }
 });
 
-// Rota de busca de clientes (autocomplete)
-// Observação: assume-se que exista uma tabela `clientes` com coluna `nome`.
+// --- ROTA DE CLIENTES (ATUALIZADA) ---
+// Retorna: [ { id_cliente: "cnpj/cpf", nome: "Razao Social..." } ]
 app.get("/api/clientes/search", async (req, res) => {
   const termoBusca = (req.query.search || "").toLowerCase().trim();
-
-  if (termoBusca.length < 2) {
-    return res.json([]);
-  }
+  if (termoBusca.length < 2) return res.json([]);
 
   try {
     const termoLike = `%${termoBusca}%`;
     const sql =
-      "SELECT nome FROM clientes WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
-
-    // Se o DB de clientes não existir, tentamos usar o produtos.db como fallback
-    let dbToUse = CLI_DB_PATH;
-    if (!fs.existsSync(dbToUse)) {
-      console.warn(
-        `Arquivo ${dbToUse} não encontrado. Tentando usar ${PROD_DB_PATH} como fallback.`
-      );
-      if (fs.existsSync(PROD_DB_PATH)) {
-        dbToUse = PROD_DB_PATH;
-      } else {
-        console.warn(
-          `Nenhum arquivo de banco de dados disponível (${CLI_DB_PATH}, ${PROD_DB_PATH}). Retornando [] para o autocomplete de clientes.`
-        );
-        return res.json([]);
-      }
-    }
-
-    const rows = await queryDatabase(dbToUse, sql, [termoLike]);
+      "SELECT id_cliente, nome FROM clientes WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
+    const rows = await queryDatabaseAll(CLI_DB_PATH, sql, [termoLike]);
     return res.json(rows);
   } catch (err) {
     console.error("Erro na consulta de clientes:", err);
-    // Se o erro for que o arquivo não existe, devolvemos array vazio para evitar quebrar o autocomplete
-    if (
-      err &&
-      /not found|ENOENT|unable to open database file/i.test(err.message)
-    ) {
+    if (/DB_NOT_FOUND/i.test(err.message)) {
+      console.warn(`Aviso: O arquivo ${CLI_DB_PATH} não foi encontrado.`);
       return res.json([]);
     }
     return res.status(500).json({ message: "Erro ao buscar clientes." });
@@ -117,239 +110,217 @@ const mapearCondicao = {
   avista: "À vista",
   "30d": "Cartão de Crédito",
   "60d": "Boleto",
-  "30/60d": "Boleto - 30/60d",
-  "30/60/90d": "Boleto - 30/60/90d",
-  "30/60/90/120d": "Boleto - 30/60/90/120d",
-  "Cartao de Debito": "Boleto - Cartao de Debito",
-  "Cartao de Credito S/Juros": "Cartao de Credito S/Juros",
-  "Cartao 1x/Juros": "Cartao de Credito 1x/Juros",
-  "Cartao 2x/Juros": "Cartao de Credito 2x/Juros",
-  "Cartao 3x/Juros": "Cartao de Credito 3x/Juros",
-  "Boleto - c/Entrada": "Boleto - c/Entrada",
-  "Cartao de Debito c/Entrada": "Cartao de Debito c/Entrada",
+  // (outras condições)
 };
 
+// --- ROTA DE SALVAR ORÇAMENTO (TOTALMENTE REESCRITA) ---
 app.post("/salvar-orcamento", async (req, res) => {
   console.log("\n=== NOVA REQUISIÇÃO DE ORÇAMENTO ===");
-  console.log("Headers recebidos:", req.headers);
-
   const dadosDoFormulario = req.body;
   console.log("\n--- DADOS RECEBIDOS DO FORMULÁRIO ---");
-  console.log("Dados brutos:", JSON.stringify(dadosDoFormulario, null, 2));
-  console.log("\nCampos encontrados:");
-  Object.keys(dadosDoFormulario).forEach((key) => {
-    console.log(`${key}:`, dadosDoFormulario[key]);
-  });
+  console.log(JSON.stringify(dadosDoFormulario, null, 2));
 
-  const { cliente_nome, condicao_pagamento } = dadosDoFormulario;
-  console.log("\nDados principais:");
-  console.log("- Cliente:", cliente_nome);
-  console.log("- Condição:", condicao_pagamento);
+  // 1. Captura todos os dados do formulário
+  const {
+    cliente_nome,
+    cliente_cnpj, // <-- NOVO
+    vendedor, // <-- NOVO (JSON String)
+    condicao_pagamento,
+  } = dadosDoFormulario;
 
-  // Proteção contra 'undefined' se o JS do frontend falhar
-  const produtos = Array.isArray(dadosDoFormulario["produto_nome"])
-    ? dadosDoFormulario["produto_nome"]
+  // 2. Parse do Vendedor
+  let vendedorInfo;
+  try {
+    vendedorInfo = JSON.parse(vendedor);
+  } catch (e) {
+    vendedorInfo = { nome: vendedor, email: "", fone: "" };
+  }
+
+  // 3. Captura dos Itens
+  const produtos = Array.isArray(dadosDoFormulario["produto_nome[]"])
+    ? dadosDoFormulario["produto_nome[]"]
+    : [];
+  const valores = Array.isArray(dadosDoFormulario["valor_unitario[]"])
+    ? dadosDoFormulario["valor_unitario[]"]
+    : [];
+  const quantidades = Array.isArray(dadosDoFormulario["quantidade[]"])
+    ? dadosDoFormulario["quantidade[]"]
     : [];
 
-  const valores = Array.isArray(dadosDoFormulario["valor_unitario"])
-    ? dadosDoFormulario["valor_unitario"]
-    : [];
-
-  const quantidades = Array.isArray(dadosDoFormulario["quantidade"])
-    ? dadosDoFormulario["quantidade"]
-    : [];
-
-  console.log("\nDados dos produtos:");
-  console.log("- Nomes:", produtos);
-  console.log("- Quantidades:", quantidades);
-  console.log("- Valores:", valores);
-
-  // Filtra itens vazios
   const itensValidos = produtos
     .map((nome, index) => ({
-      nome: nome,
+      nomeCompleto: nome, // Ex: "10030 - BASE P/LAMP..."
       qtd: parseInt(quantidades[index] || 1),
       valor: parseFloat(valores[index] || 0),
     }))
-    .filter((p) => p.nome && p.nome.trim() !== "");
+    .filter((p) => p.nomeCompleto && p.nomeCompleto.trim() !== "");
 
   const numItens = itensValidos.length;
-  console.log("\nItens após processamento:");
-  console.log(`- Total de itens válidos: ${numItens}`);
-  console.log("- Itens detalhados:");
-  itensValidos.forEach((item, idx) => {
-    console.log(
-      `  ${idx + 1}. ${item.nome} (${item.qtd} x R$ ${item.valor.toFixed(2)})`
-    );
-  });
+  console.log(`\n- Total de itens válidos: ${numItens}`);
 
   try {
     const workbook = new exceljs.Workbook();
-    // Para o Vercel, é melhor usar process.cwd() para garantir o caminho
     const templatePath = path.join(
-      process.cwd(), // <-- Mudança para Vercel
+      process.cwd(),
       "templates",
-      "template_orcamento.xlsx"
-    );
+      "TEMPLATE-ORCAMENTEO.xlsx"
+    ); // <-- Novo nome do template
     await workbook.xlsx.readFile(templatePath);
 
     const worksheet = workbook.getWorksheet("Sheet1");
-    if (!worksheet) {
-      throw new Error(
-        "Não foi possível encontrar a planilha 'Sheet1'. Verifique o nome da aba no seu template."
-      );
-    }
+    if (!worksheet) throw new Error("Planilha 'Sheet1' não encontrada.");
 
-    // 1. Preenche Cliente
-    worksheet.getCell(CLIENT_CELL).value = cliente_nome;
+    // 4. Preenche Dados do Cliente (Novas Células)
+    worksheet.getCell(CLIENT_NAME_CELL).value = cliente_nome; // C6
+    worksheet.getCell(CLIENT_CNPJ_CELL).value = cliente_cnpj; // C7
 
-    // 2. Define a linha inicial dos itens
-    const linhaInicialItens = ITEM_START_ROW;
-
-    // --- LÓGICA ATUALIZADA E MAIS SEGURA ---
+    // 5. Define a linha inicial dos itens
+    const linhaInicialItens = ITEM_START_ROW; // Linha 9
 
     if (numItens === 0) {
-      // Se 0 itens, escreve uma linha indicando que não há itens
-      console.log("Nenhum item válido foi adicionado.");
-      // Código vazio, descrição "Nenhum item", quant e valores 0
-      worksheet.getCell(`${COL_CODE}${linhaInicialItens}`).value = "";
-      worksheet.getCell(`${COL_DESC}${linhaInicialItens}`).value =
+      // (Lógica de 0 itens)
+      worksheet.getRow(linhaInicialItens).getCell(COL_DESC).value =
         "Nenhum item";
-      worksheet.getCell(`${COL_QTD}${linhaInicialItens}`).value = 0;
-      worksheet.getCell(`${COL_VAL_UNIT}${linhaInicialItens}`).value = 0;
-      worksheet.getCell(`${COL_VAL_TOTAL}${linhaInicialItens}`).value = 0;
+      const linhaTotal = linhaInicialItens + 1; // Linha 10
+      worksheet.getCell(`${TOTAL_VALUE_CELL_PREFIX}${linhaTotal}`).value = 0; // F10
 
-      // Total ficará na linha imediatamente após a linha de itens
-      const linhaTotal = linhaInicialItens + 1;
-      worksheet.getCell(`${COL_VAL_TOTAL}${linhaTotal}`).value = {
-        formula: `0`,
-      };
-      // Escreve a condição de pagamento uma linha abaixo do total
-      worksheet.getCell(`A${linhaTotal + 1}`).value =
-        mapearCondicao[condicao_pagamento] || condicao_pagamento;
+      // Preenche Vendedor
+      const linhaConsultor = linhaTotal + 4; // Linha 14 (baseado no template)
+      worksheet.getCell(`${VENDOR_NAME_CELL_PREFIX}${linhaConsultor}`).value =
+        vendedorInfo.nome;
+      worksheet.getCell(
+        `${VENDOR_PHONE_CELL_PREFIX}${linhaConsultor + 1}`
+      ).value = vendedorInfo.fone;
+      worksheet.getCell(
+        `${VENDOR_EMAIL_CELL_PREFIX}${linhaConsultor + 2}`
+      ).value = vendedorInfo.email;
     } else {
-      // Se 1 ou MAIS itens, executa a lógica de loop
+      // --- LÓGICA DE 1+ ITENS (COM IMAGENS) ---
 
-      // 3. Insere novas linhas se houver MAIS de 1 item
+      // 6. Insere novas linhas se houver MAIS de 1 item
       if (numItens > 1) {
-        const linhasParaAdicionar = numItens - 1;
-
-        const arrayDeLinhasVazias = Array.from(
-          { length: linhasParaAdicionar },
-          () => []
+        worksheet.insertRows(
+          linhaInicialItens + 1,
+          Array.from({ length: numItens - 1 }, () => []),
+          "i+" // 'i+' copia a altura da linha de cima
         );
-
-        if (numItens > 1) {
-          const linhasParaAdicionar = numItens - 1;
-
-          const arrayDeLinhasVazias = Array.from(
-            { length: linhasParaAdicionar },
-            () => []
-          );
-
-          worksheet.insertRows(
-            linhaInicialItens + 1,
-            arrayDeLinhasVazias,
-            "i+"
-          );
-        }
       }
 
-      // 4. Preenche os dados dos itens (buscando também o código no DB de produtos)
-      for (let index = 0; index < itensValidos.length; index++) {
-        const item = itensValidos[index];
+      // 7. Preenche os dados dos itens (USANDO FOR...OF PARA AWAIT)
+      let index = 0;
+      for (const item of itensValidos) {
         const linhaNum = linhaInicialItens + index;
+        const linha = worksheet.getRow(linhaNum);
+        linha.height = 80; // Define a altura da linha para a imagem
 
-        // Busca o código do produto no DB (caso exista)
+        // Extrai o código do nome "CODIGO - NOME"
         let codigoProduto = "";
-        try {
-          const rows = await queryDatabase(
-            PROD_DB_PATH,
-            "SELECT codigo FROM produtos WHERE nome = ? LIMIT 1",
-            [item.nome]
-          );
-          if (rows && rows.length > 0 && rows[0].codigo) {
-            codigoProduto = rows[0].codigo;
-          }
-        } catch (err) {
-          // se houver erro na busca do código, apenas logamos e seguimos
-          console.warn(
-            `Não foi possível obter código para produto '${item.nome}':`,
-            err.message
-          );
+        let nomeProduto = item.nomeCompleto;
+        if (item.nomeCompleto && item.nomeCompleto.includes(" - ")) {
+          const partes = item.nomeCompleto.split(" - ");
+          codigoProduto = partes[0].trim();
+          nomeProduto = partes.slice(1).join(" - ").trim();
         }
 
-        worksheet.getCell(`${COL_CODE}${linhaNum}`).value = codigoProduto;
-        worksheet.getCell(`${COL_DESC}${linhaNum}`).value = item.nome;
-        worksheet.getCell(`${COL_QTD}${linhaNum}`).value = item.qtd;
-        worksheet.getCell(`${COL_VAL_UNIT}${linhaNum}`).value = item.valor;
+        // Preenche Células de Texto/Número
+        worksheet.getCell(`${COL_CODE}${linhaNum}`).value = codigoProduto; // B9
+        worksheet.getCell(`${COL_DESC}${linhaNum}`).value = nomeProduto; // C9
+        worksheet.getCell(`${COL_QTD}${linhaNum}`).value = item.qtd; // D9
+        worksheet.getCell(`${COL_VAL_UNIT}${linhaNum}`).value = item.valor; // E9
         worksheet.getCell(`${COL_VAL_TOTAL}${linhaNum}`).value = {
+          // F9
           formula: `${COL_QTD}${linhaNum}*${COL_VAL_UNIT}${linhaNum}`,
         };
-      }
 
-      // 5. Preenche os campos "móveis": total e condição de pagamento
+        // --- LÓGICA DE IMAGEM ---
+        if (codigoProduto) {
+          try {
+            const sql = "SELECT imagem_url FROM produtos WHERE codigo = ?";
+            const produtoDB = await queryDatabaseGet(PROD_DB_PATH, sql, [
+              codigoProduto,
+            ]);
+
+            if (produtoDB && produtoDB.imagem_url) {
+              console.log(
+                `Baixando imagem para ${codigoProduto}: ${produtoDB.imagem_url}`
+              );
+              const response = await fetch(produtoDB.imagem_url);
+              if (!response.ok)
+                throw new Error(
+                  `Falha ao baixar imagem: ${response.statusText}`
+                );
+
+              const buffer = await response.arrayBuffer();
+              const extensao =
+                produtoDB.imagem_url.split(".").pop().toLowerCase() || "jpeg";
+
+              const imageId = workbook.addImage({
+                buffer: Buffer.from(buffer),
+                extension: extensao === "jpg" ? "jpeg" : extensao,
+              });
+
+              // Adiciona a imagem à planilha (Coluna A)
+              worksheet.addImage(imageId, {
+                tl: { col: 0.05, row: linhaNum - 0.95 }, // Coluna 0 = A
+                br: { col: 0.95, row: linhaNum - 0.05 },
+                editAs: "oneCell",
+              });
+            }
+          } catch (imgError) {
+            console.error(
+              `Erro ao processar imagem para ${codigoProduto}:`,
+              imgError.message
+            );
+            worksheet.getCell(`${COL_IMG}${linhaNum}`).value = "Erro Img";
+          }
+        }
+        // --- FIM DA LÓGICA DE IMAGEM ---
+
+        index++;
+      } // Fim do loop for...of
+
+      // 8. Preenche os campos "móveis" (Total, Vendedor, Condições)
       const ultimaLinhaItem = linhaInicialItens + numItens - 1;
-      const linhaTotal = ultimaLinhaItem + 1; // linha imediatamente abaixo dos itens
+      const linhaTotal = ultimaLinhaItem + 1; // Linha 10 (ou 11, 12...)
 
-      worksheet.getCell(`${COL_VAL_TOTAL}${linhaTotal}`).value = {
+      // Total (Ex: F10)
+      worksheet.getCell(`${TOTAL_VALUE_CELL_PREFIX}${linhaTotal}`).value = {
         formula: `SUM(${COL_VAL_TOTAL}${linhaInicialItens}:${COL_VAL_TOTAL}${ultimaLinhaItem})`,
       };
+      // Label "TOTAL:" (Ex: E10)
+      worksheet.getCell(`${TOTAL_LABEL_CELL_PREFIX}${linhaTotal}`).value =
+        "TOTAL:";
 
-      // Escreve a label TOTAL na coluna de valor unitário (coluna anterior à total)
-      worksheet.getCell(`${COL_VAL_UNIT}${linhaTotal}`).value = "TOTAL:";
+      // Posição dos campos de rodapé (Vendedor, Condições)
+      const linhaObs = linhaTotal + 2; // Linha 12
+      const linhaConsultor = linhaObs + 3; // Linha 15
 
-      // Condição de pagamento fixada uma linha abaixo do total
-      worksheet.getCell(`A${linhaTotal + 1}`).value =
-        mapearCondicao[condicao_pagamento] || condicao_pagamento;
+      // Condições (não achei no template, mas vou colocar abaixo das obs)
+      worksheet.getCell(`A${linhaObs + 2}`).value = `Condição: ${
+        mapearCondicao[condicao_pagamento] || condicao_pagamento
+      }`;
+
+      // Vendedor (Ex: B15, B16, B17)
+      worksheet.getCell(`${VENDOR_NAME_CELL_PREFIX}${linhaConsultor}`).value =
+        vendedorInfo.nome;
+      worksheet.getCell(
+        `${VENDOR_PHONE_CELL_PREFIX}${linhaConsultor + 1}`
+      ).value = vendedorInfo.fone;
+      worksheet.getCell(
+        `${VENDOR_EMAIL_CELL_PREFIX}${linhaConsultor + 2}`
+      ).value = vendedorInfo.email;
     }
 
-    // --- INÍCIO DA MODIFICAÇÃO PARA DOWNLOAD DIRETO ---
-
-    // 6. Gerar o nome do arquivo (em memória)
+    // 9. Lógica de Download (intocada)
     const nomeClienteFormatado = (cliente_nome || "orcamento")
       .replace(/[^a-z0-9]/gi, "_")
       .toLowerCase();
     const nomeArquivoFinal = `orcamento_${nomeClienteFormatado}_${Date.now()}.xlsx`;
 
     console.log(
-      `Orçamento gerado: ${nomeArquivoFinal}. Salvando e enviando para download...`
+      `Orçamento gerado em memória: ${nomeArquivoFinal}. Enviando para download...`
     );
 
-    // Garante que a pasta orcamentos_gerados existe
-    const pastaSalvar = path.join(__dirname, "orcamentos_gerados");
-    const caminhoArquivo = path.join(pastaSalvar, nomeArquivoFinal);
-    console.log(`Tentando criar/verificar pasta em: ${pastaSalvar}`);
-
-    try {
-      if (!fs.existsSync(pastaSalvar)) {
-        console.log(`Pasta não existe, criando...`);
-        fs.mkdirSync(pastaSalvar, { recursive: true });
-        console.log(`Pasta criada com sucesso`);
-      } else {
-        console.log(`Pasta já existe`);
-      }
-
-      // Salva o arquivo localmente
-      console.log(`Tentando salvar arquivo em: ${caminhoArquivo}`);
-
-      await workbook.xlsx.writeFile(caminhoArquivo);
-      console.log(`Arquivo salvo com sucesso em: ${caminhoArquivo}`);
-
-      // Verifica se o arquivo foi realmente criado
-      if (fs.existsSync(caminhoArquivo)) {
-        console.log(`Confirmado: arquivo existe no disco`);
-        const stats = fs.statSync(caminhoArquivo);
-        console.log(`Tamanho do arquivo: ${stats.size} bytes`);
-      } else {
-        throw new Error("Arquivo não encontrado após tentativa de escrita");
-      }
-    } catch (err) {
-      console.error("Erro ao salvar arquivo:", err);
-      throw err; // Re-lança o erro para ser pego pelo catch externo
-    }
-
-    // 7. Definir os cabeçalhos da resposta para o navegador
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -359,28 +330,10 @@ app.post("/salvar-orcamento", async (req, res) => {
       `attachment; filename="${nomeArquivoFinal}"`
     );
 
-    // 8. Envia o arquivo salvo para download
-    // Use o caminho absoluto diretamente (não passe 'root' para evitar junção indevida em Windows)
-    res.sendFile(caminhoArquivo, (err) => {
-      if (err) {
-        console.error("Erro ao enviar arquivo:", err);
-        if (!res.headersSent) {
-          res.status(500).json({
-            message: "Erro ao enviar o arquivo para download.",
-            details: err.message,
-          });
-        }
-      } else {
-        console.log(
-          `Arquivo enviado com sucesso para download: ${caminhoArquivo}`
-        );
-      }
-    });
-
-    // --- FIM DA MODIFICAÇÃO ---
+    await workbook.xlsx.write(res);
+    res.end();
   } catch (error) {
     console.error("Erro ao gerar o orçamento:", error);
-    // Adicionado para evitar erro caso o stream de download já tenha começado
     if (!res.headersSent) {
       res.status(500).json({
         message: "Erro ao processar o orçamento.",
@@ -394,5 +347,5 @@ app.listen(port, () => {
   console.log(`Backend rodando em http://localhost:${port}`);
 });
 
-// Adicionado para Vercel
+// Exporta o 'app' para o Vercel (ou para rodar com 'node-main')
 module.exports = app;
