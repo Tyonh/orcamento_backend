@@ -13,6 +13,9 @@ const CLI_DB_PATH = path.join(__dirname, "clientes.db");
 // --- NOVO LAYOUT DO TEMPLATE ---
 const CLIENT_NAME_CELL = "C6";
 const CLIENT_CNPJ_CELL = "C7";
+const CLIENT_EMAIL_CELL = "F7";
+const POSI_DATA = "F6";
+
 const ITEM_START_ROW = 9; // Linha 9
 const COL_IMG = "A"; // Coluna A (PRODUTO)
 const COL_CODE = "B"; // Coluna B (CODIGO)
@@ -23,9 +26,11 @@ const COL_VAL_TOTAL = "F"; // Coluna F (VALOR TOTAL)
 // Linhas abaixo dos itens
 const TOTAL_LABEL_CELL_PREFIX = "E"; // Prefixo da célula "TOTAL:"
 const TOTAL_VALUE_CELL_PREFIX = "F"; // Prefixo da célula do valor total
-const VENDOR_NAME_CELL_PREFIX = "B"; // Célula para nome do Consultor
-const VENDOR_PHONE_CELL_PREFIX = "B"; // Célula para Contato
-const VENDOR_EMAIL_CELL_PREFIX = "B"; // Célula para Email
+const VENDOR_NAME_CELL_PREFIX = "C"; // Célula para nome do Consultor
+const VENDOR_PHONE_CELL_PREFIX = "C"; // Célula para Contato
+const VENDOR_EMAIL_CELL_PREFIX = "C"; // Célula para Email (maiúscula)
+// Coluna onde será escrita a condição de pagamento (ex: "A", "B", "C")
+const COL_CONDI = "C"; // ajuste aqui se o template mudar
 
 // --- HELPERS DO BANCO DE DADOS (MODIFICADOS) ---
 
@@ -109,8 +114,17 @@ console.log("Backend iniciado. Aguardando envios de formulário...");
 const mapearCondicao = {
   avista: "À vista",
   "30d": "Cartão de Crédito",
-  "60d": "Boleto",
-  // (outras condições)
+  "30d": "Boleto - 30d",
+  "30/60d": "Boleto - 30/60d",
+  "30/60/90d": "Boleto - 30/60/90d",
+  "30/60/90/120d": "Boleto - 30/60/90/120d",
+  "Cartao de Debito": "Cartao de Debito",
+  "Cartao de Credito S/Juros": "Cartao de Credito S/Juros",
+  "Cartao 1x/Juros": "Cartao de Credito 1x/Juros",
+  "Cartao 2x/Juros": "Cartao de Credito 2x/Juros",
+  "Cartao 3x/Juros": "Cartao de Credito 3x/Juros",
+  "Boleto - c/Entrada": "Boleto - c/Entrada",
+  "Cartao de Debito c/Entrada": "Cartao de Debito c/Entrada",
 };
 
 // --- ROTA DE SALVAR ORÇAMENTO (TOTALMENTE REESCRITA) ---
@@ -118,17 +132,43 @@ app.post("/salvar-orcamento", async (req, res) => {
   console.log("\n=== NOVA REQUISIÇÃO DE ORÇAMENTO ===");
   const dadosDoFormulario = req.body;
   console.log("\n--- DADOS RECEBIDOS DO FORMULÁRIO ---");
-  console.log(JSON.stringify(dadosDoFormulario, null, 2));
+  console.log(JSON.stringify(dadosDoFormulario, null, 2)); // 1. Captura todos os dados do formulário (Sem alteração)
 
-  // 1. Captura todos os dados do formulário
-  const {
+  // Extrai campos do formulário; usaremos let para poder sobrescrever com dados do banco
+  let {
     cliente_nome,
-    cliente_cnpj, // <-- NOVO
-    vendedor, // <-- NOVO (JSON String)
+    cliente_cnpj,
+    cliente_email,
+    id_cliente,
+    vendedor,
     condicao_pagamento,
   } = dadosDoFormulario;
 
-  // 2. Parse do Vendedor
+  // Busca id_cliente e email do banco de dados clientes pelo nome, se possível
+  if (cliente_nome) {
+    try {
+      const sqlCliente =
+        "SELECT id_cliente, email FROM clientes WHERE nome = ? COLLATE NOCASE LIMIT 1";
+      const clienteDB = await queryDatabaseGet(CLI_DB_PATH, sqlCliente, [
+        cliente_nome,
+      ]);
+      if (clienteDB) {
+        if (clienteDB.id_cliente) {
+          id_cliente = clienteDB.id_cliente;
+          cliente_cnpj = clienteDB.id_cliente;
+        }
+        if (clienteDB.email) {
+          cliente_email = clienteDB.email;
+        }
+      }
+    } catch (e) {
+      console.warn(
+        "Não foi possível buscar dados do cliente pelo nome:",
+        e.message
+      );
+    }
+  }
+
   let vendedorInfo;
   try {
     vendedorInfo = JSON.parse(vendedor);
@@ -136,20 +176,21 @@ app.post("/salvar-orcamento", async (req, res) => {
     vendedorInfo = { nome: vendedor, email: "", fone: "" };
   }
 
-  // 3. Captura dos Itens
-  const produtos = Array.isArray(dadosDoFormulario["produto_nome[]"])
-    ? dadosDoFormulario["produto_nome[]"]
+  // 3. Captura dos Itens (===== CORREÇÃO AQUI =====)
+  // Removemos os '[]' dos nomes das chaves para bater com o log
+  const produtos = Array.isArray(dadosDoFormulario["produto_nome"])
+    ? dadosDoFormulario["produto_nome"]
     : [];
-  const valores = Array.isArray(dadosDoFormulario["valor_unitario[]"])
-    ? dadosDoFormulario["valor_unitario[]"]
+  const valores = Array.isArray(dadosDoFormulario["valor_unitario"])
+    ? dadosDoFormulario["valor_unitario"]
     : [];
-  const quantidades = Array.isArray(dadosDoFormulario["quantidade[]"])
-    ? dadosDoFormulario["quantidade[]"]
+  const quantidades = Array.isArray(dadosDoFormulario["quantidade"])
+    ? dadosDoFormulario["quantidade"]
     : [];
 
   const itensValidos = produtos
     .map((nome, index) => ({
-      nomeCompleto: nome, // Ex: "10030 - BASE P/LAMP..."
+      nomeCompleto: nome,
       qtd: parseInt(quantidades[index] || 1),
       valor: parseFloat(valores[index] || 0),
     }))
@@ -170,30 +211,41 @@ app.post("/salvar-orcamento", async (req, res) => {
     const worksheet = workbook.getWorksheet("Sheet1");
     if (!worksheet) throw new Error("Planilha 'Sheet1' não encontrada.");
 
+    worksheet.getCell(POSI_DATA).value = new Date();
     // 4. Preenche Dados do Cliente (Novas Células)
-    worksheet.getCell(CLIENT_NAME_CELL).value = cliente_nome; // C6
-    worksheet.getCell(CLIENT_CNPJ_CELL).value = cliente_cnpj; // C7
-
+    worksheet.getCell(CLIENT_NAME_CELL).value = cliente_nome || ""; // C6
+    // Prioriza id_cliente (quando o autocomplete retorna id_cliente), senão usa cliente_cnpj
+    worksheet.getCell(CLIENT_CNPJ_CELL).value =
+      id_cliente || cliente_cnpj || ""; // C7
+    worksheet.getCell(CLIENT_EMAIL_CELL).value = cliente_email || ""; // F7
     // 5. Define a linha inicial dos itens
     const linhaInicialItens = ITEM_START_ROW; // Linha 9
 
     if (numItens === 0) {
       // (Lógica de 0 itens)
-      worksheet.getRow(linhaInicialItens).getCell(COL_DESC).value =
+      worksheet.getCell(`${COL_DESC}${linhaInicialItens}`).value =
         "Nenhum item";
       const linhaTotal = linhaInicialItens + 1; // Linha 10
       worksheet.getCell(`${TOTAL_VALUE_CELL_PREFIX}${linhaTotal}`).value = 0; // F10
 
       // Preenche Vendedor
       const linhaConsultor = linhaTotal + 4; // Linha 14 (baseado no template)
-      worksheet.getCell(`${VENDOR_NAME_CELL_PREFIX}${linhaConsultor}`).value =
-        vendedorInfo.nome;
-      worksheet.getCell(
-        `${VENDOR_PHONE_CELL_PREFIX}${linhaConsultor + 1}`
-      ).value = vendedorInfo.fone;
-      worksheet.getCell(
-        `${VENDOR_EMAIL_CELL_PREFIX}${linhaConsultor + 2}`
-      ).value = vendedorInfo.email;
+      try {
+        const addrName = `${VENDOR_NAME_CELL_PREFIX}${linhaConsultor}`;
+        const addrPhone = `${VENDOR_PHONE_CELL_PREFIX}${linhaConsultor + 1}`;
+        const addrEmail = `${VENDOR_EMAIL_CELL_PREFIX}${linhaConsultor + 2}`;
+        console.log("Escrevendo vendedor em:", addrName, addrPhone, addrEmail);
+        worksheet.getCell(addrName).value = vendedorInfo.nome;
+        worksheet.getCell(addrPhone).value = vendedorInfo.fone;
+        worksheet.getCell(addrEmail).value = vendedorInfo.email;
+      } catch (vendorErr) {
+        console.error("Erro ao escrever dados do vendedor. Endereços:", {
+          name: `${VENDOR_NAME_CELL_PREFIX}${linhaConsultor}`,
+          phone: `${VENDOR_PHONE_CELL_PREFIX}${linhaConsultor + 1}`,
+          email: `${VENDOR_EMAIL_CELL_PREFIX}${linhaConsultor + 2}`,
+        });
+        throw vendorErr;
+      }
     } else {
       // --- LÓGICA DE 1+ ITENS (COM IMAGENS) ---
 
@@ -261,8 +313,10 @@ app.post("/salvar-orcamento", async (req, res) => {
 
               // Adiciona a imagem à planilha (Coluna A)
               worksheet.addImage(imageId, {
-                tl: { col: 0.05, row: linhaNum - 0.95 }, // Coluna 0 = A
-                br: { col: 0.95, row: linhaNum - 0.05 },
+                // --- MUDANÇA AQUI ---
+                // Usamos as coordenadas exatas da célula (0-indexed)
+                tl: { col: 0, row: linhaNum - 1 }, // Canto Superior Esquerdo
+                br: { col: 1, row: linhaNum }, // Canto Inferior Direito // --- FIM DA MUDANÇA ---
                 editAs: "oneCell",
               });
             }
@@ -296,9 +350,9 @@ app.post("/salvar-orcamento", async (req, res) => {
       const linhaConsultor = linhaObs + 3; // Linha 15
 
       // Condições (não achei no template, mas vou colocar abaixo das obs)
-      worksheet.getCell(`A${linhaObs + 2}`).value = `Condição: ${
-        mapearCondicao[condicao_pagamento] || condicao_pagamento
-      }`;
+      // Usa a constante COL_CONDI para posicionamento da coluna (flexível)
+      worksheet.getCell(`${COL_CONDI}${linhaObs - 2}`).value =
+        mapearCondicao[condicao_pagamento] || condicao_pagamento;
 
       // Vendedor (Ex: B15, B16, B17)
       worksheet.getCell(`${VENDOR_NAME_CELL_PREFIX}${linhaConsultor}`).value =
