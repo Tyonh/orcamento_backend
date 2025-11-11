@@ -354,7 +354,7 @@ app.post("/salvar-orcamento", async (req, res) => {
       worksheet.getCell(`${COL_CONDI}${linhaObs - 2}`).value =
         mapearCondicao[condicao_pagamento] || condicao_pagamento;
 
-      // Vendedor (Ex: B15, B16, B17)
+      // Vendedor (Ex: C15, C16, C17)
       worksheet.getCell(`${VENDOR_NAME_CELL_PREFIX}${linhaConsultor}`).value =
         vendedorInfo.nome;
       worksheet.getCell(
