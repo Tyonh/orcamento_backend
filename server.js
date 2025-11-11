@@ -202,10 +202,11 @@ app.post("/salvar-orcamento", async (req, res) => {
   try {
     const workbook = new exceljs.Workbook();
     const templatePath = path.join(
-      process.cwd(),
+      __dirname,
       "templates",
       "TEMPLATE-ORCAMENTEO.xlsx"
-    ); // <-- Novo nome do template
+    );
+    // <-- Novo nome do template
     await workbook.xlsx.readFile(templatePath);
 
     const worksheet = workbook.getWorksheet("Sheet1");
