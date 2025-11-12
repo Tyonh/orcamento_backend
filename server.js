@@ -96,7 +96,7 @@ app.get("/api/clientes/search", async (req, res) => {
   try {
     const termoLike = `%${termoBusca}%`;
     const sql =
-      "SELECT id_cliente, nome FROM clientes WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
+      "SELECT CGC_CPF, RAZAO_SOCIAL FROM clientes WHERE RAZAO_SOCIAL COLLATE NOCASE LIKE ? LIMIT 10";
     const rows = await queryDatabaseAll(CLI_DB_PATH, sql, [termoLike]);
     return res.json(rows);
   } catch (err) {
@@ -148,7 +148,7 @@ app.post("/salvar-orcamento", async (req, res) => {
   if (cliente_nome) {
     try {
       const sqlCliente =
-        "SELECT id_cliente, email FROM clientes WHERE nome = ? COLLATE NOCASE LIMIT 1";
+        "SELECT CGC_CPF, E_MAIL FROM clientes WHERE RAZAO_SOCIAL = ? COLLATE NOCASE LIMIT 1";
       const clienteDB = await queryDatabaseGet(CLI_DB_PATH, sqlCliente, [
         cliente_nome,
       ]);
