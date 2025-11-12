@@ -8,7 +8,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 const PROD_DB_PATH = path.join(__dirname, "produtos.db");
-const CLI_DB_PATH = path.join(__dirname, "cliente.db");
+const CLI_DB_PATH = path.join(__dirname, "clientes.db");
 
 // --- NOVO LAYOUT DO TEMPLATE ---
 const CLIENT_NAME_CELL = "C6";
