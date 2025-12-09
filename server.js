@@ -1,22 +1,37 @@
 const express = require("express");
 const fs = require("fs/promises");
+const fsSync = require("fs");
 const puppeteer = require("puppeteer");
 const path = require("path");
 const cors = require("cors");
 const sqlite3 = require("sqlite3");
+const axios = require("axios");
 
 const app = express();
 const port = process.env.PORT || 3000;
 
+// --- CONFIGURAÇÕES DE CAMINHOS ---
 const PROD_DB_PATH = path.join(__dirname, "produtos.db");
 const CLI_DB_PATH = path.join(__dirname, "clientes.db");
-app.use("/public", express.static(path.join(__dirname, "templates", "public")));
+const TEMPLATE_PATH = path.join(__dirname, "templates", "template.html");
+const STYLE_PATH = path.join(__dirname, "templates", "public", "style.css");
+const LOGO_PATH = path.join(__dirname, "templates", "public", "logo.png");
+// Caminho base para as imagens dos vendedores
+const PUBLIC_DIR = path.join(__dirname, "templates", "public");
+
+const TEMP_IMG_DIR = path.join(__dirname, "temp_img");
+
+if (!fsSync.existsSync(TEMP_IMG_DIR)) {
+  console.log(`Criando pasta temporária em: ${TEMP_IMG_DIR}`);
+  fsSync.mkdirSync(TEMP_IMG_DIR);
+}
 
 app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use("/public", express.static(path.join(__dirname, "public")));
 
-// Funções auxiliares para banco de dados
+// ... (Funções helpers de banco de dados permanecem iguais) ...
 function queryDatabaseAll(dbPath, sql, params = []) {
   return new Promise((resolve, reject) => {
     const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
@@ -43,12 +58,13 @@ function queryDatabaseGet(dbPath, sql, params = []) {
   });
 }
 
-// Rota para buscar produtos
+// ... (Rotas de busca e função downloadImagemTemporaria permanecem iguais) ...
 app.get("/api/produtos/search", async (req, res) => {
-  const termoBusca = (req.query.search || "").toLowerCase().trim();
-  if (termoBusca.length < 2) return res.json([]);
+  // ... (código original)
+  const termo = (req.query.search || "").toLowerCase().trim();
+  if (termo.length < 2) return res.json([]);
   try {
-    const termoLike = `%${termoBusca}%`;
+    const termoLike = `%${termo}%`;
     const sql =
       "SELECT codigo, descricao AS nome FROM produtos WHERE descricao COLLATE NOCASE LIKE ? OR codigo LIKE ? LIMIT 10";
     const rows = await queryDatabaseAll(PROD_DB_PATH, sql, [
@@ -57,166 +73,275 @@ app.get("/api/produtos/search", async (req, res) => {
     ]);
     return res.json(rows);
   } catch (err) {
-    return res.status(500).json({ message: "Erro ao buscar produtos." });
+    return res.status(500).json({ message: "Erro busca produtos" });
   }
 });
 
-// Rota para buscar clientes
 app.get("/api/clientes/search", async (req, res) => {
-  const termoBusca = (req.query.search || "").toLowerCase().trim();
-  if (termoBusca.length < 2) return res.json([]);
+  // ... (código original)
+  const termo = (req.query.search || "").toLowerCase().trim();
+  if (termo.length < 2) return res.json([]);
   try {
-    const termoLike = `%${termoBusca}%`;
+    const termoLike = `%${termo}%`;
     const sql =
       "SELECT id_cliente, nome FROM clientes WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
     const rows = await queryDatabaseAll(CLI_DB_PATH, sql, [termoLike]);
     return res.json(rows);
   } catch (err) {
-    return res.status(500).json({ message: "Erro ao buscar clientes." });
+    return res.status(500).json({ message: "Erro busca clientes" });
   }
 });
 
-// Rota principal para gerar orçamento em PDF
-app.post("/salvar-orcamento", async (req, res) => {
-  const dados = req.body;
-  let {
-    cliente_nome,
-    cliente_cnpj,
-    cliente_email,
-    id_cliente,
-    vendedor,
-    condicao_pagamento,
-  } = dados;
+async function downloadImagemTemporaria(url) {
+  // ... (mesma função do seu código original) ...
+  const urlLimpa = url.trim();
+  const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  const tempFilePath = path.join(TEMP_IMG_DIR, `img_${uniqueId}.jpg`);
 
-  // Busca dados do cliente no banco
-  if (cliente_nome) {
-    try {
-      const sqlCliente =
-        "SELECT id_cliente, email FROM clientes WHERE nome = ? COLLATE NOCASE LIMIT 1";
-      const clienteDB = await queryDatabaseGet(CLI_DB_PATH, sqlCliente, [
-        cliente_nome,
-      ]);
-      if (clienteDB) {
-        if (clienteDB.id_cliente) {
-          id_cliente = clienteDB.id_cliente;
-          cliente_cnpj = clienteDB.id_cliente;
-        }
-        if (clienteDB.email) {
-          cliente_email = clienteDB.email;
-        }
-      }
-    } catch (e) {}
-  }
-
-  let vendedorInfo;
   try {
-    vendedorInfo = JSON.parse(vendedor);
-  } catch (e) {
-    vendedorInfo = { nome: vendedor, email: "", fone: "" };
-  }
-
-  // Captura dos itens
-  const produtos = Array.isArray(dados["produto_nome"])
-    ? dados["produto_nome"]
-    : [];
-  const valores = Array.isArray(dados["valor_unitario"])
-    ? dados["valor_unitario"]
-    : [];
-  const quantidades = Array.isArray(dados["quantidade"])
-    ? dados["quantidade"]
-    : [];
-
-  const itensValidos = produtos
-    .map(function (nome, index) {
-      return {
-        nomeCompleto: nome,
-        qtd: parseInt(quantidades[index] || 1),
-        valor: parseFloat(valores[index] || 0),
-      };
-    })
-    .filter(function (p) {
-      return p.nomeCompleto && p.nomeCompleto.trim() !== "";
+    const response = await axios({
+      url: urlLimpa,
+      method: "GET",
+      responseType: "arraybuffer",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+      },
+      timeout: 10000,
     });
 
-  // Monta HTML dos itens
-  let itensHtml = "";
-  for (const item of itensValidos) {
-    let codigoProduto = "";
-    let nomeProduto = item.nomeCompleto;
-    if (item.nomeCompleto && item.nomeCompleto.includes(" - ")) {
-      const partes = item.nomeCompleto.split(" - ");
-      codigoProduto = partes[0].trim();
-      nomeProduto = partes.slice(1).join(" - ").trim();
+    await fs.writeFile(tempFilePath, response.data);
+    const fileContent = await fs.readFile(tempFilePath);
+    const contentType = response.headers["content-type"] || "image/jpeg";
+    const base64 = `data:${contentType};base64,${fileContent.toString(
+      "base64"
+    )}`;
+    await fs.unlink(tempFilePath);
+    return base64;
+  } catch (error) {
+    console.warn(`[AVISO] Erro ao baixar imagem ${urlLimpa}:`, error.message);
+    try {
+      if (fsSync.existsSync(tempFilePath)) await fs.unlink(tempFilePath);
+    } catch (e) {}
+    return null;
+  }
+}
+
+app.post("/salvar-orcamento", async (req, res) => {
+  console.log("Iniciando geração de orçamento...");
+
+  try {
+    const dados = req.body;
+    let {
+      cliente_nome,
+      cliente_cnpj,
+      cliente_email,
+      id_cliente,
+      vendedor,
+      condicao_pagamento,
+    } = dados;
+
+    let vendedorInfo = { nome: "", email: "", fone: "", imagem: "" };
+    // 1. Cliente (Lógica original)
+    if (cliente_nome) {
+      try {
+        const row = await queryDatabaseGet(
+          CLI_DB_PATH,
+          "SELECT id_cliente, email FROM clientes WHERE nome = ? COLLATE NOCASE LIMIT 1",
+          [cliente_nome]
+        );
+        if (row) {
+          if (row.id_cliente) {
+            id_cliente = row.id_cliente;
+            if (!cliente_cnpj) cliente_cnpj = row.id_cliente;
+          }
+          if (row.email) cliente_email = row.email;
+        }
+      } catch (e) {
+        console.error("Erro cliente:", e);
+      }
     }
-    itensHtml += `
-			<tr>
-                <td>img</td>
-				<td>${codigoProduto}</td>
-				<td>${nomeProduto}</td>
-				<td>${item.qtd}</td>
-				<td>R$ ${item.valor.toFixed(2)}</td>
-				<td>R$ ${(item.qtd * item.valor).toFixed(2)}</td>
-			</tr>
-		`;
-  }
-  if (itensValidos.length === 0) {
-    itensHtml = `<tr><td colspan="5">Nenhum item</td></tr>`;
-  }
 
-  // Carrega template HTML
-  const templatePath = path.join(__dirname, "templates", "template.html");
-  let html;
-  try {
-    html = await fs.readFile(templatePath, "utf8");
-  } catch (err) {
-    return res.status(500).json({ message: "Template não encontrado." });
-  }
+    try {
+      // Tenta transformar o texto do select em Objeto
+      const parsed = JSON.parse(vendedor);
 
-  // Preenche variáveis do template
-  const total = itensValidos.reduce(
-    (acc, item) => acc + item.qtd * item.valor,
-    0
-  );
-  html = html
-    .replace("{{cliente_nome}}", cliente_nome || "")
-    .replace("{{cliente_cnpj}}", id_cliente || cliente_cnpj || "")
-    .replace("{{cliente_email}}", cliente_email || "")
-    .replace("{{vendedor_nome}}", vendedorInfo.nome || "")
-    .replace("{{vendedor_email}}", vendedorInfo.email || "")
-    .replace("{{vendedor_fone}}", vendedorInfo.fone || "")
-    .replace("{{condicao_pagamento}}", condicao_pagamento || "")
-    .replace("{{data}}", new Date().toLocaleDateString("pt-BR"))
-    .replace("{{itens}}", itensHtml)
-    .replace("{{total}}", `R$ ${total.toFixed(2)}`);
+      // Se deu certo, preenche as variáveis
+      vendedorInfo.nome = parsed.nome || "";
+      vendedorInfo.imagem = parsed.imagem || ""; // Pega o nome do arquivo aqui
+    } catch (e) {
+      vendedorInfo.nome = vendedor;
+    }
 
-  // Gera PDF
-  try {
-    const browser = await puppeteer.launch();
+    // 3. Processa Itens (Lógica original)
+    const produtos = Array.isArray(dados["produto_nome"])
+      ? dados["produto_nome"]
+      : [];
+    const valores = Array.isArray(dados["valor_unitario"])
+      ? dados["valor_unitario"]
+      : [];
+    const quantidades = Array.isArray(dados["quantidade"])
+      ? dados["quantidade"]
+      : [];
+
+    const itensValidos = produtos
+      .map((nome, i) => ({
+        nomeCompleto: nome,
+        qtd: parseInt(quantidades[i] || 1),
+        valor: parseFloat(valores[i] || 0),
+      }))
+      .filter((p) => p.nomeCompleto && p.nomeCompleto.trim() !== "");
+
+    // --- GERAÇÃO DOS ITENS ---
+    let itensHtml = "";
+    for (const item of itensValidos) {
+      // ... (Lógica de itens e imagem do produto original mantida) ...
+      let codigo = "";
+      let nome = item.nomeCompleto;
+
+      if (item.nomeCompleto.includes(" - ")) {
+        const parts = item.nomeCompleto.split(" - ");
+        codigo = parts[0].trim();
+        nome = parts.slice(1).join(" - ").trim();
+      }
+
+      let imgTag = `<div style="width:50px; height:50px; background:#eee; display:flex; align-items:center; justify-content:center; font-size:9px; color:#999; margin:auto;">S/ FOTO</div>`;
+
+      if (codigo) {
+        const row = await queryDatabaseGet(
+          PROD_DB_PATH,
+          "SELECT imagem_url FROM produtos WHERE codigo = ? LIMIT 1",
+          [codigo]
+        );
+        if (row && row.imagem_url && row.imagem_url.startsWith("http")) {
+          const base64Image = await downloadImagemTemporaria(
+            row.imagem_url.trim()
+          );
+          if (base64Image) {
+            imgTag = `<img src="${base64Image}" alt="${codigo}" style="width:50px; height:50px; object-fit:contain; display:block; margin:auto;" />`;
+          }
+        }
+      }
+
+      itensHtml += `
+        <tr>
+            <td style="width:60px; text-align:center; padding:5px;">${imgTag}</td>
+            <td style="vertical-align:middle; text-align:center;">${codigo}</td>
+            <td style="vertical-align:middle;">${nome}</td>
+            <td style="text-align:center; vertical-align:middle;">${
+              item.qtd
+            }</td>
+            <td style="vertical-align:middle;">R$ ${item.valor.toFixed(2)}</td>
+            <td style="vertical-align:middle;">R$ ${(
+              item.qtd * item.valor
+            ).toFixed(2)}</td>
+        </tr>`;
+    }
+
+    // 4. Carrega Template e Recursos Estáticos
+    let htmlTemplate = "";
+    try {
+      htmlTemplate = await fs.readFile(TEMPLATE_PATH, "utf8");
+    } catch (e) {
+      throw new Error(`Template não encontrado em ${TEMPLATE_PATH}`);
+    }
+
+    let cssContent = "";
+    try {
+      cssContent = await fs.readFile(STYLE_PATH, "utf8");
+    } catch (e) {}
+
+    let logoBase64 = "";
+    try {
+      const logoBuffer = await fs.readFile(LOGO_PATH);
+      logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
+    } catch (e) {}
+
+    // --- NOVO: LÓGICA DA IMAGEM DO VENDEDOR ---
+    let vendedorImgHtml = "";
+
+    // MUDANÇA AQUI: Usamos vendedorInfo.imagem em vez de vendedor_imagem solto
+    const nomeArquivoImagem = vendedorInfo.imagem;
+
+    if (nomeArquivoImagem && nomeArquivoImagem.trim() !== "") {
+      try {
+        const safeFilename = path.basename(nomeArquivoImagem);
+        const vendedorImgPath = path.join(PUBLIC_DIR, safeFilename);
+
+        const ext = path.extname(safeFilename).replace(".", "") || "png";
+
+        const vendedorBuffer = await fs.readFile(vendedorImgPath);
+        const vendedorBase64 = `data:image/${ext};base64,${vendedorBuffer.toString(
+          "base64"
+        )}`;
+
+        // Ajuste o tamanho (width) conforme necessário para caber no seu layout
+        vendedorImgHtml = `
+            <div style="position: fixed; bottom: 25px; left: 0; width: 100%; text-align: center;">
+    <img src="${vendedorBase64}" style="width: 100%; max-height: 150px; object-fit: contain;">
+</div>`;
+      } catch (e) {
+        console.warn(
+          `Imagem do vendedor (${nomeArquivoImagem}) não encontrada.`
+        );
+      }
+    }
+    // ------------------------------------------
+
+    const total = itensValidos.reduce((acc, it) => acc + it.qtd * it.valor, 0);
+
+    // Substituições no HTML
+    const finalHtml = htmlTemplate
+      .replace("</head>", `<style>${cssContent}</style></head>`)
+      .replace(/src=".*?logo\.png"/g, `src="${logoBase64}"`)
+      .replace("{{cliente_nome}}", cliente_nome || "")
+      .replace("{{cliente_cnpj}}", cliente_cnpj || "")
+      .replace("{{cliente_email}}", cliente_email || "")
+      .replace("{{vendedor_nome}}", vendedorInfo.nome || "")
+
+      // AQUI ENTRA A NOVA SUBSTITUIÇÃO
+      .replace("{{vendedor_info}}", vendedorImgHtml)
+
+      .replace("{{condicao_pagamento}}", condicao_pagamento || "")
+      .replace("{{data}}", new Date().toLocaleDateString("pt-BR"))
+      .replace("{{itens}}", itensHtml)
+      .replace("{{total}}", `R$ ${total.toFixed(2)}`);
+
+    // 5. Puppeteer
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
-    const pdfBuffer = await page.pdf({ format: "A4" });
+
+    await page.setContent(finalHtml, { waitUntil: "domcontentloaded" });
+
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: { top: "20px", bottom: "0px", left: "20px", right: "20px" },
+    });
+
     await browser.close();
 
-    const nomeClienteFormatado = (cliente_nome || "orcamento")
-      .replace(/[^a-z0-9]/gi, "_")
-      .toLowerCase();
-    const nomeArquivoFinal = `orcamento_${nomeClienteFormatado}_${Date.now()}.pdf`;
-
+    const filename = `orcamento_${(cliente_nome || "cliente").replace(
+      /[^a-z0-9]/gi,
+      "_"
+    )}.pdf`;
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${nomeArquivoFinal}"`
-    );
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(pdfBuffer);
+    console.log("Orçamento gerado com sucesso!");
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Erro ao gerar PDF.", details: error.message });
+    console.error("ERRO FATAL NO SERVIDOR:", error);
+    res.status(500).json({
+      message: "Erro interno ao gerar PDF",
+      erro: error.message,
+      stack: error.stack,
+    });
   }
 });
 
 app.listen(port, () => {
-  console.log(`Backend rodando em http://localhost:${port}`);
+  console.log(`Servidor rodando na porta ${port}`);
 });
-
-module.exports = app;
