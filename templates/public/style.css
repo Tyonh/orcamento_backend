@@ -1,0 +1,260 @@
+/* --- Configurações Gerais e de Impressão --- */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  background-color: #f2f2f2; /* Fundo cinza para visualização na tela */
+  color: #333;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.page-container {
+  width: 210mm; /* Largura A4 */
+  min-height: 297mm; /* Altura A4 */
+  background-color: #fff;
+  margin: 20px auto;
+  padding: 20px;
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+  position: relative;
+}
+
+/* --- Cabeçalho --- */
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+  border-bottom: 2px solid #333;
+  padding-bottom: 5px;
+}
+
+.logo-section {
+  width: 150px;
+  height: 80px;
+  background-color: #eee;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-weight: bold;
+  border: 1px dashed #ccc;
+}
+
+.company-details {
+  flex: 1;
+  padding: 0 20px;
+}
+
+.company-details h1 {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+}
+
+.company-details p {
+  margin-bottom: 2px;
+}
+
+.company-details h2 {
+  font-size: 16px;
+  font-weight: bold;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+}
+
+.empresa-logo img {
+  max-width: 300px; /* Exemplo: define a largura máxima da imagem */
+  height: auto;
+}
+
+.brand-tag {
+  background-color: #333;
+  color: #fff;
+  padding: 2px 8px;
+  font-size: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+/* --- Informações do Cliente --- */
+.info-grid {
+  display: flex;
+  margin-bottom: 10px;
+  border: 1px solid #ddd;
+  padding: 15px;
+  background-color: #fcfcfc;
+}
+
+.client-col {
+  flex: 2;
+  border-right: 1px solid #ddd;
+  padding-right: 15px;
+}
+
+.meta-col {
+  flex: 1;
+  padding-left: 15px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.field-group {
+  margin-bottom: 8px;
+}
+
+.label {
+  font-weight: bold;
+  color: #666;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.value {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* --- Tabela de Itens --- */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 30px;
+}
+
+th {
+  background-color: #b12b30;
+  color: #fff;
+  text-align: left;
+  padding: 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+td {
+  border-bottom: 1px solid #eee;
+  padding: 12px 10px;
+  vertical-align: middle;
+}
+
+tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+/* Colunas específicas */
+.col-img {
+  width: 60px;
+  text-align: center;
+  color: #ccc;
+  font-size: 10px;
+}
+.col-code {
+  width: 80px;
+  font-family: monospace;
+}
+.col-desc {
+}
+.col-qtd {
+  width: 60px;
+  text-align: center;
+}
+.col-money {
+  width: 100px;
+  text-align: right;
+}
+
+.total-row td {
+  background-color: #eee;
+  font-weight: bold;
+  border-top: 2px solid #ccc;
+}
+
+/* --- Rodapé e Observações --- */
+.footer-section {
+  display: flex;
+  margin-top: 20px;
+  justify-content: space-between;
+}
+
+.conditions {
+  flex: 1;
+  padding-right: 40px;
+}
+
+.conditions h3 {
+  font-size: 12px;
+  border-bottom: 1px solid #ddd;
+  margin-bottom: 10px;
+  padding-bottom: 5px;
+}
+
+.obs-list {
+  list-style: none;
+  color: #555;
+  font-size: 11px;
+}
+
+.obs-list li {
+  margin-bottom: 6px;
+}
+
+.totals-block {
+  width: 250px;
+  text-align: right;
+}
+
+.total-highlight {
+  font-size: 18px;
+  font-weight: bold;
+  color: #000;
+  margin-top: 10px;
+}
+
+/* --- Assinatura --- */
+.signature-section {
+  margin-top: 60px;
+  text-align: center;
+  page-break-inside: avoid;
+}
+
+.signature-line {
+  width: 300px;
+  border-top: 1px solid #000;
+  margin: 0 auto 10px auto;
+}
+
+.consultant-name {
+  font-weight: bold;
+  font-size: 14px;
+  text-transform: uppercase;
+}
+
+.consultant-role {
+  font-size: 11px;
+  color: #666;
+  margin-bottom: 5px;
+}
+
+/* --- Media Query para Impressão --- */
+@media print {
+  body {
+    background-color: #fff;
+  }
+  .page-container {
+    width: 100%;
+    margin: 0;
+    padding: 20px; /* Margem menor para impressão */
+    box-shadow: none;
+  }
+  header {
+    /* Garante que o cabeçalho imprima cores de fundo se necessário (navegadores variam) */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
