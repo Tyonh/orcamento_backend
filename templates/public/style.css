@@ -34,28 +34,9 @@ header {
   padding-bottom: 5px;
 }
 
-.logo-section {
-  width: 150px;
-  height: 80px;
-  background-color: #eee;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #888;
-  font-weight: bold;
-  border: 1px dashed #ccc;
-}
-
 .company-details {
   flex: 1;
   padding: 0 20px;
-}
-
-.company-details h1 {
-  font-size: 24px;
-  font-weight: bold;
-  margin-bottom: 5px;
-  text-transform: uppercase;
 }
 
 .company-details p {
@@ -72,15 +53,6 @@ header {
 .empresa-logo img {
   max-width: 300px; /* Exemplo: define a largura máxima da imagem */
   height: auto;
-}
-
-.brand-tag {
-  background-color: #333;
-  color: #fff;
-  padding: 2px 8px;
-  font-size: 10px;
-  border-radius: 3px;
-  display: inline-block;
 }
 
 /* --- Informações do Cliente --- */
@@ -152,12 +124,11 @@ tr:nth-child(even) {
 .col-img {
   width: 60px;
   text-align: center;
-  color: #ccc;
-  font-size: 10px;
+  color: #fff;
+  font-size: 11px;
 }
 .col-code {
   width: 80px;
-  font-family: monospace;
 }
 
 .col-qtd {
@@ -190,7 +161,7 @@ tr:nth-child(even) {
 .conditions h3 {
   font-size: 12px;
   border-bottom: 1px solid #ddd;
-  margin-bottom: 10px;
+  margin-bottom: 5px;
   padding-bottom: 5px;
 }
 
@@ -201,7 +172,7 @@ tr:nth-child(even) {
 }
 
 .obs-list li {
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 
 .totals-block {
@@ -257,4 +228,51 @@ tr:nth-child(even) {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+}
+
+/* --- Novo Layout de Resumo --- */
+.resumo-flex {
+  display: flex;
+  justify-content: space-between; /* Um na ponta esquerda, outro na direita */
+  align-items: center;
+  background-color: #eee; /* Fundo cinza claro para destaque (igual a linha de total antiga) */
+  padding: 10px 15px;
+  margin-bottom: 15px; /* Espaço antes das observações */
+  border-top: 2px solid #ccc;
+}
+/* --- Ajuste Condições de Pagamento (Lado a Lado e Menor) --- */
+.condicoes-box {
+  display: flex; /* Faz os itens ficarem lado a lado */
+  align-items: baseline; /* Alinha o texto pela base das letras */
+  font-size: 10px; /* Tamanho da fonte bem menor */
+}
+
+.titulo-condicao {
+  font-weight: bold;
+  color: #666;
+  text-transform: uppercase;
+  margin-right: 5px; /* Espacinho entre o título e o valor */
+}
+
+.valor-condicao {
+  font-weight: bold;
+  color: #000; /* Cor preta para destaque do valor */
+  font-size: 11px; /* O valor pode ser levemente maior se quiser */
+}
+
+.total-box {
+  text-align: right;
+}
+
+.total-label {
+  font-size: 14px;
+  font-weight: bold;
+  margin-right: 10px;
+  text-transform: uppercase;
+}
+
+.total-value {
+  font-size: 18px; /* Total bem grande */
+
+  color: #000;
 }

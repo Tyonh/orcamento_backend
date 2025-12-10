@@ -58,21 +58,22 @@
         <tbody>
           {{itens}}
         </tbody>
-        <tfoot>
-          <tr class="total-row">
-            <td colspan="4"></td>
-            <td style="text-align: right">TOTAL:</td>
-            <td class="col-money">{{total}}</td>
-          </tr>
-        </tfoot>
       </table>
 
-      <div class="footer-section">
-        <div class="conditions">
-          <h3>Condições de Pagamento</h3>
-          <p class="value">{{condicao_pagamento}}</p>
-          <br />
+      <div class="resumo-flex">
+        <div class="condicoes-box">
+          <span class="titulo-condicao">Condições de Pagamento:</span>
+          <span class="valor-condicao">{{condicao_pagamento}}</span>
+        </div>
 
+        <div class="total-box">
+          <span class="total-label">TOTAL:</span>
+          <span class="total-value">{{total}}</span>
+        </div>
+      </div>
+
+      <div class="footer-section">
+        <div class="conditions" style="width: 100%">
           <h3>Observações</h3>
           <ol class="obs-list">
             <li>
