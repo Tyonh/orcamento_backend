@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orçamento - JE&R Importação e Exportação</title>
+  </head>
+  <body>
+    <div class="page-container">
+      <header>
+        <div class="company-details">
+          <h2>JE&R Importação e Exportação LTDA</h2>
+          <p class="label">CNPJ: 03.087.727/0001-46</p>
+          <p>Rua Senador Almino, 180 - Praia de Iracema - Fortaleza-CE</p>
+          <p>Fone: (85) 3025.0339</p>
+        </div>
+
+        <div class="empresa-logo">
+          <img src="/style/logo.png" class="logo" alt="" />
+        </div>
+      </header>
+
+      <div class="info-grid">
+        <div class="client-col">
+          <div class="field-group">
+            <div class="label">Cliente</div>
+            <div class="value">{{cliente_nome}}</div>
+          </div>
+          <div class="field-group">
+            <div class="label">CNPJ/CPF</div>
+            <div class="value">{{cliente_cnpj}}</div>
+          </div>
+        </div>
+
+        <div class="meta-col">
+          <div class="field-group" style="text-align: right">
+            <div class="label">Data de Emissão</div>
+            <div class="value">{{data}}</div>
+          </div>
+          <div class="field-group" style="text-align: right">
+            <div class="label">Email</div>
+            <div class="value">{{cliente_email}}</div>
+          </div>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th class="col-img">Produto</th>
+            <th class="col-code">Código</th>
+            <th class="col-desc">Descrição do Produto</th>
+            <th class="col-qtd">Qtd</th>
+            <th class="col-money">V. Unit</th>
+            <th class="col-money">V. Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{itens}}
+        </tbody>
+      </table>
+
+      <div class="resumo-flex">
+        <div class="condicoes-box">
+          <span class="titulo-condicao">Condições de Pagamento:</span>
+          <span class="valor-condicao">{{condicao_pagamento}}</span>
+        </div>
+
+        <div class="total-box">
+          <span class="total-label">TOTAL:</span>
+          <span class="total-value">{{total}}</span>
+        </div>
+      </div>
+
+      <div class="footer-section">
+        <div class="conditions" style="width: 100%">
+          <h3>Observações</h3>
+          <ol class="obs-list">
+            <li>
+              1. Os valores informados neste orçamento têm validade de 7 dias
+              úteis a partir da data de emissão. Após esse prazo, os preços
+              poderão sofrer alterações sem aviso prévio.
+            </li>
+            <li>
+              2. O prazo de entrega será confirmado conforme a disponibilidade
+              de estoque e região de entrega.
+            </li>
+            <li>
+              3. O envio dos produtos ocorre após a confirmação do pedido e das
+              condições de pagamento.
+            </li>
+            <li>
+              4. Instalação e serviços adicionais não inclusos, salvo quando
+              expressamente mencionados na descrição dos itens.
+            </li>
+          </ol>
+        </div>
+      </div>
+      {{vendedor_info}}
+    </div>
+  </body>
+</html>
