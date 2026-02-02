@@ -16,11 +16,10 @@ const CLI_DB_PATH = path.join(__dirname, "clientes.db");
 const TEMPLATE_PATH = path.join(__dirname, "templates", "template.html");
 const STYLE_PATH = path.join(__dirname, "templates", "public", "style.css");
 const LOGO_PATH = path.join(__dirname, "templates", "public", "logo.png");
-// Caminho base para as imagens dos vendedores
 const PUBLIC_DIR = path.join(__dirname, "templates", "public");
-
 const TEMP_IMG_DIR = path.join(__dirname, "temp_img");
 
+// Cria pasta temporária se não existir
 if (!fsSync.existsSync(TEMP_IMG_DIR)) {
   console.log(`Criando pasta temporária em: ${TEMP_IMG_DIR}`);
   fsSync.mkdirSync(TEMP_IMG_DIR);
@@ -31,7 +30,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use("/public", express.static(path.join(__dirname, "public")));
 
-// ... (Funções helpers de banco de dados permanecem iguais) ...
+// --- FUNÇÕES HELPERS ---
 function queryDatabaseAll(dbPath, sql, params = []) {
   return new Promise((resolve, reject) => {
     const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
@@ -58,42 +57,8 @@ function queryDatabaseGet(dbPath, sql, params = []) {
   });
 }
 
-// ... (Rotas de busca e função downloadImagemTemporaria permanecem iguais) ...
-app.get("/api/produtos/search", async (req, res) => {
-  // ... (código original)
-  const termo = (req.query.search || "").toLowerCase().trim();
-  if (termo.length < 2) return res.json([]);
-  try {
-    const termoLike = `%${termo}%`;
-    const sql =
-      "SELECT codigo, descricao AS nome FROM produtos WHERE descricao COLLATE NOCASE LIKE ? OR codigo LIKE ? LIMIT 10";
-    const rows = await queryDatabaseAll(PROD_DB_PATH, sql, [
-      termoLike,
-      termoLike,
-    ]);
-    return res.json(rows);
-  } catch (err) {
-    return res.status(500).json({ message: "Erro busca produtos" });
-  }
-});
-
-app.get("/api/clientes/search", async (req, res) => {
-  // ... (código original)
-  const termo = (req.query.search || "").toLowerCase().trim();
-  if (termo.length < 2) return res.json([]);
-  try {
-    const termoLike = `%${termo}%`;
-    const sql =
-      "SELECT id_cliente, nome FROM clientes WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
-    const rows = await queryDatabaseAll(CLI_DB_PATH, sql, [termoLike]);
-    return res.json(rows);
-  } catch (err) {
-    return res.status(500).json({ message: "Erro busca clientes" });
-  }
-});
-
+// --- HELPER PARA DOWNLOAD DE IMAGENS ---
 async function downloadImagemTemporaria(url) {
-  // ... (mesma função do seu código original) ...
   const urlLimpa = url.trim();
   const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(7)}`;
   const tempFilePath = path.join(TEMP_IMG_DIR, `img_${uniqueId}.jpg`);
@@ -113,9 +78,8 @@ async function downloadImagemTemporaria(url) {
     await fs.writeFile(tempFilePath, response.data);
     const fileContent = await fs.readFile(tempFilePath);
     const contentType = response.headers["content-type"] || "image/jpeg";
-    const base64 = `data:${contentType};base64,${fileContent.toString(
-      "base64"
-    )}`;
+    const base64 = `data:${contentType};base64,${fileContent.toString("base64")}`;
+
     await fs.unlink(tempFilePath);
     return base64;
   } catch (error) {
@@ -127,6 +91,40 @@ async function downloadImagemTemporaria(url) {
   }
 }
 
+// --- ROTAS DA API ---
+
+app.get("/api/produtos/search", async (req, res) => {
+  const termo = (req.query.search || "").toLowerCase().trim();
+  if (termo.length < 2) return res.json([]);
+  try {
+    const termoLike = `%${termo}%`;
+    const sql =
+      "SELECT codigo, descricao AS nome FROM produtos WHERE descricao COLLATE NOCASE LIKE ? OR codigo LIKE ? LIMIT 10";
+    const rows = await queryDatabaseAll(PROD_DB_PATH, sql, [
+      termoLike,
+      termoLike,
+    ]);
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ message: "Erro busca produtos" });
+  }
+});
+
+app.get("/api/clientes/search", async (req, res) => {
+  const termo = (req.query.search || "").toLowerCase().trim();
+  if (termo.length < 2) return res.json([]);
+  try {
+    const termoLike = `%${termo}%`;
+    const sql =
+      "SELECT id_cliente, nome FROM clientes WHERE nome COLLATE NOCASE LIKE ? LIMIT 10";
+    const rows = await queryDatabaseAll(CLI_DB_PATH, sql, [termoLike]);
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ message: "Erro busca clientes" });
+  }
+});
+
+// --- ROTA PRINCIPAL: GERAR PDF ---
 app.post("/salvar-orcamento", async (req, res) => {
   console.log("Iniciando geração de orçamento...");
 
@@ -139,16 +137,19 @@ app.post("/salvar-orcamento", async (req, res) => {
       id_cliente,
       vendedor,
       condicao_pagamento,
+      valor_condicao,
+      observacao,
     } = dados;
 
     let vendedorInfo = { nome: "", email: "", fone: "", imagem: "" };
-    // 1. Cliente (Lógica original)
+
+    // 1. Processar Cliente
     if (cliente_nome) {
       try {
         const row = await queryDatabaseGet(
           CLI_DB_PATH,
           "SELECT id_cliente, email FROM clientes WHERE nome = ? COLLATE NOCASE LIMIT 1",
-          [cliente_nome]
+          [cliente_nome],
         );
         if (row) {
           if (row.id_cliente) {
@@ -162,18 +163,16 @@ app.post("/salvar-orcamento", async (req, res) => {
       }
     }
 
+    // 2. Processar Vendedor
     try {
-      // Tenta transformar o texto do select em Objeto
       const parsed = JSON.parse(vendedor);
-
-      // Se deu certo, preenche as variáveis
       vendedorInfo.nome = parsed.nome || "";
-      vendedorInfo.imagem = parsed.imagem || ""; // Pega o nome do arquivo aqui
+      vendedorInfo.imagem = parsed.imagem || "";
     } catch (e) {
       vendedorInfo.nome = vendedor;
     }
 
-    // 3. Processa Itens (Lógica original)
+    // 3. Processar Itens
     const produtos = Array.isArray(dados["produto_nome"])
       ? dados["produto_nome"]
       : [];
@@ -192,10 +191,9 @@ app.post("/salvar-orcamento", async (req, res) => {
       }))
       .filter((p) => p.nomeCompleto && p.nomeCompleto.trim() !== "");
 
-    // --- GERAÇÃO DOS ITENS ---
+    // 3.1 Gerar HTML da Tabela
     let itensHtml = "";
     for (const item of itensValidos) {
-      // ... (Lógica de itens e imagem do produto original mantida) ...
       let codigo = "";
       let nome = item.nomeCompleto;
 
@@ -211,11 +209,11 @@ app.post("/salvar-orcamento", async (req, res) => {
         const row = await queryDatabaseGet(
           PROD_DB_PATH,
           "SELECT imagem_url FROM produtos WHERE codigo = ? LIMIT 1",
-          [codigo]
+          [codigo],
         );
         if (row && row.imagem_url && row.imagem_url.startsWith("http")) {
           const base64Image = await downloadImagemTemporaria(
-            row.imagem_url.trim()
+            row.imagem_url.trim(),
           );
           if (base64Image) {
             imgTag = `<img src="${base64Image}" alt="${codigo}" style="width:50px; height:50px; object-fit:contain; display:block; margin:auto;" />`;
@@ -224,27 +222,17 @@ app.post("/salvar-orcamento", async (req, res) => {
       }
 
       itensHtml += `
-    <tr>
-        <td style="width:60px; text-align:center; padding:5px;">${imgTag}</td>
-        <td style="vertical-align:middle; text-align:center;">${codigo}</td>
-        <td style="vertical-align:middle;">${nome}</td>
-        <td style="text-align:center; vertical-align:middle;">${item.qtd}</td>
-        
-        <td style="vertical-align:middle;">R$ ${item.valor.toLocaleString(
-          "pt-BR",
-          { minimumFractionDigits: 2, maximumFractionDigits: 2 }
-        )}</td>
-        
-        <td style="vertical-align:middle;">R$ ${(
-          item.qtd * item.valor
-        ).toLocaleString("pt-BR", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}</td>
-    </tr>`;
+        <tr>
+            <td style="width:60px; text-align:center; padding:5px;">${imgTag}</td>
+            <td style="vertical-align:middle; text-align:center;">${codigo}</td>
+            <td style="vertical-align:middle;">${nome}</td>
+            <td style="text-align:center; vertical-align:middle;">${item.qtd}</td>
+            <td style="vertical-align:middle;">R$ ${item.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td style="vertical-align:middle;">R$ ${(item.qtd * item.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        </tr>`;
     }
 
-    // 4. Carrega Template e Recursos Estáticos
+    // 4. Carregar Recursos
     let htmlTemplate = "";
     try {
       htmlTemplate = await fs.readFile(TEMPLATE_PATH, "utf8");
@@ -263,84 +251,235 @@ app.post("/salvar-orcamento", async (req, res) => {
       logoBase64 = `data:image/png;base64,${logoBuffer.toString("base64")}`;
     } catch (e) {}
 
-    // --- NOVO: LÓGICA DA IMAGEM DO VENDEDOR ---
+    // Imagem do Vendedor
     let vendedorImgHtml = "";
-
-    // MUDANÇA AQUI: Usamos vendedorInfo.imagem em vez de vendedor_imagem solto
     const nomeArquivoImagem = vendedorInfo.imagem;
-
     if (nomeArquivoImagem && nomeArquivoImagem.trim() !== "") {
       try {
         const safeFilename = path.basename(nomeArquivoImagem);
         const vendedorImgPath = path.join(PUBLIC_DIR, safeFilename);
-
         const ext = path.extname(safeFilename).replace(".", "") || "png";
-
         const vendedorBuffer = await fs.readFile(vendedorImgPath);
-        const vendedorBase64 = `data:image/${ext};base64,${vendedorBuffer.toString(
-          "base64"
-        )}`;
+        const vendedorBase64 = `data:image/${ext};base64,${vendedorBuffer.toString("base64")}`;
 
         vendedorImgHtml = `
-    <div style="margin-top: auto; width: 100%; text-align: center; page-break-inside: avoid; padding-bottom: 10px;">
-        
-        <img src="${vendedorBase64}" style="width: 100%; max-height: 150px; object-fit: contain;">
-       
-    </div>`;
+            <div style="margin-top: auto; width: 100%; text-align: center; page-break-inside: avoid; padding-bottom: 5px;">
+                <img src="${vendedorBase64}" style="width: 100%; max-height: 150px; object-fit: contain;">
+            </div>`;
       } catch (e) {
         console.warn(
-          `Imagem do vendedor (${nomeArquivoImagem}) não encontrada.`
+          `Imagem do vendedor (${nomeArquivoImagem}) não encontrada.`,
         );
       }
     }
-    // ------------------------------------------
 
-    const total = itensValidos.reduce((acc, it) => acc + it.qtd * it.valor, 0);
+    // 5. Cálculos
+    const totalItens = itensValidos.reduce(
+      (acc, it) => acc + it.qtd * it.valor,
+      0,
+    );
 
-    // Substituições no HTML
+    // Observações
+    let observacoesHtml = "";
+    let observacoesArray = [];
+    if (Array.isArray(observacao)) {
+      observacoesArray = observacao.filter((obs) => obs && obs.trim() !== "");
+    } else if (
+      observacao &&
+      typeof observacao === "string" &&
+      observacao.trim() !== ""
+    ) {
+      observacoesArray = observacao
+        .split(/[\n;]+/)
+        .map((obs) => obs.trim())
+        .filter((obs) => obs.length > 0);
+    }
+
+    if (observacoesArray.length > 0) {
+      let numeroInicial = 5;
+      observacoesHtml = observacoesArray
+        .map((obs, index) => {
+          return `<li>${numeroInicial + index}. ${obs}</li>`;
+        })
+        .join("");
+    }
+
+    // --- LÓGICA DAS BARRAS DE CONDIÇÕES ---
+
+    const arrayCondicoes = Array.isArray(dados.condicao_pagamento)
+      ? dados.condicao_pagamento
+      : dados.condicao_pagamento
+        ? [dados.condicao_pagamento]
+        : [];
+
+    const arrayValores = Array.isArray(dados.valor_condicao)
+      ? dados.valor_condicao
+      : dados.valor_condicao
+        ? [dados.valor_condicao]
+        : [];
+
+    let htmlCondicoesFinal = "";
+
+    if (arrayCondicoes.length > 0) {
+      let listaCondicoesProcessada = arrayCondicoes
+        .map((texto, i) => {
+          return {
+            texto: texto,
+            valorInput: parseFloat(arrayValores[i] || 0),
+          };
+        })
+        .filter((item) => item.texto && item.texto.trim() !== "");
+
+      // Ordenação
+      listaCondicoesProcessada.sort((a, b) => {
+        if (a.valorInput === 0 && b.valorInput > 0) return -1;
+        if (a.valorInput > 0 && b.valorInput === 0) return 1;
+        return 0;
+      });
+
+      htmlCondicoesFinal = listaCondicoesProcessada
+        .map((item, index) => {
+          const valorManual = item.valorInput;
+          const valorFinal = valorManual > 0 ? valorManual : totalItens;
+
+          const valorFormatado = valorFinal.toLocaleString("pt-BR", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          });
+
+          return `
+            <div class="resumo-flex" style="margin-top: 0px; margin-bottom: 2px;">
+                <div class="condicoes-box">
+                    <span class="titulo-condicao">CONDIÇÃO ${index + 1}:</span>
+                    <div class="valor-condicao">
+                        ${item.texto.trim()}
+                    </div>
+                </div>
+                
+                <div class="total-box">
+                    <span class="total-label">TOTAL:</span>
+                    <span class="total-value">R$ ${valorFormatado}</span>
+                </div>
+            </div>`;
+        })
+        .join("");
+    } else {
+      const totalFormatado = totalItens.toLocaleString("pt-BR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+      htmlCondicoesFinal = `
+        <div class="resumo-flex" style="margin-top: 0px; margin-bottom: 2px;">
+             <div class="condicoes-box"></div>
+             <div class="total-box">
+                <span class="total-label">TOTAL:</span>
+                <span class="total-value">R$ ${totalFormatado}</span>
+             </div>
+        </div>`;
+    }
+
+    // --- CSS EXTRA PARA FORÇAR ESPAÇO MÁXIMO ---
+    const cssOverride = `
+      .page-container {
+         display: flex;
+         flex-direction: column;
+         min-height: 290mm; /* Aumentado para próximo do A4 total */
+         height: auto;
+         padding-bottom: 0px !important; /* Remove padding inferior */
+         page-break-inside: auto;
+      }
+      .vendedor-info-section {
+         position: relative !important;
+         bottom: auto !important;
+         margin-top: auto; 
+         width: 100%;
+         page-break-inside: avoid;
+         padding-bottom: 5px; /* Mínimo para não cortar imagem */
+      }
+      @media print {
+         .vendedor-info-section {
+            position: relative !important;
+            bottom: auto !important;
+         }
+         body { margin: 0; padding: 0; }
+         .page-container {
+             box-shadow: none;
+             margin: 0;
+             width: 100%;
+             padding-bottom: 0px !important;
+         }
+      }
+    `;
+
+    // --- SCRIPT AJUSTE FINO DE ALTURA ---
+    // Aumentado pageHeightMM para 290 para usar quase toda a folha (297mm)
+    // Isso deve empurrar o rodapé bem para a ponta.
+    const scriptHeightAdjustment = `
+    <script>
+      window.addEventListener('load', () => {
+        const container = document.querySelector('.page-container');
+        if(!container) return;
+        
+        // Aumentado para 290mm (Muito perto do total 297mm)
+        // Isso considera margens quase zeradas
+        const pageHeightMM = 280; 
+        
+        const div = document.createElement('div');
+        div.style.height = '1mm';
+        document.body.appendChild(div);
+        const pxPerMM = div.offsetHeight || 3.78;
+        document.body.removeChild(div);
+        
+        const pageHeightPx = pageHeightMM * pxPerMM;
+        
+        const currentHeightPx = container.scrollHeight;
+        const pages = Math.ceil(currentHeightPx / pageHeightPx);
+        
+        container.style.minHeight = (pages * pageHeightMM) + 'mm';
+      });
+    </script>
+    `;
+
+    // 6. Substituições no HTML
     const finalHtml = htmlTemplate
-      .replace("</head>", `<style>${cssContent}</style></head>`)
+      .replace("</head>", `<style>${cssContent}\n${cssOverride}</style></head>`)
+      .replace("</body>", `${scriptHeightAdjustment}</body>`)
       .replace(/src=".*?logo\.png"/g, `src="${logoBase64}"`)
       .replace("{{cliente_nome}}", cliente_nome || "")
       .replace("{{cliente_cnpj}}", cliente_cnpj || "")
       .replace("{{cliente_email}}", cliente_email || "")
       .replace("{{vendedor_nome}}", vendedorInfo.nome || "")
-
-      // AQUI ENTRA A NOVA SUBSTITUIÇÃO
       .replace("{{vendedor_info}}", vendedorImgHtml)
 
-      .replace("{{condicao_pagamento}}", condicao_pagamento || "")
+      .replace("{{area_condicoes_pagamento}}", htmlCondicoesFinal)
+
+      .replace("{{condicao_pagamento}}", "")
+      .replace("{{condicoes_adicionais_boxes}}", "")
+      .replace("{{total}}", "")
+
       .replace("{{data}}", new Date().toLocaleDateString("pt-BR"))
       .replace("{{itens}}", itensHtml)
-      .replace(
-        "{{total}}",
-        `R$ ${total.toLocaleString("pt-BR", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}`
-      );
+      .replace("{{observacoes_adicionais}}", observacoesHtml);
 
-    // 5. Puppeteer
+    // 7. Puppeteer
     const browser = await puppeteer.launch({
       headless: "new",
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
     const page = await browser.newPage();
 
-    await page.setContent(finalHtml, { waitUntil: "domcontentloaded" });
+    await page.setContent(finalHtml, { waitUntil: "networkidle0" });
 
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
+      // MARGEM INFERIOR ZERADA PARA MÁXIMO ESPAÇO
       margin: { top: "20px", bottom: "0px", left: "20px", right: "20px" },
     });
 
     await browser.close();
 
-    const filename = `orcamento_${(cliente_nome || "cliente").replace(
-      /[^a-z0-9]/gi,
-      "_"
-    )}.pdf`;
+    const filename = `orcamento_${(cliente_nome || "cliente").replace(/[^a-z0-9]/gi, "_")}.pdf`;
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(pdfBuffer);
@@ -358,4 +497,3 @@ app.post("/salvar-orcamento", async (req, res) => {
 app.listen(port, () => {
   console.log(`Servidor rodando na porta ${port}`);
 });
-///teste

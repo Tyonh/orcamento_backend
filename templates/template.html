@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
@@ -60,20 +60,10 @@
         </tbody>
       </table>
 
-      <div class="resumo-flex">
-        <div class="condicoes-box">
-          <span class="titulo-condicao">Condições de Pagamento:</span>
-          <span class="valor-condicao">{{condicao_pagamento}}</span>
-        </div>
-
-        <div class="total-box">
-          <span class="total-label">TOTAL:</span>
-          <span class="total-value">{{total}}</span>
-        </div>
-      </div>
+      {{area_condicoes_pagamento}}
 
       <div class="footer-section">
-        <div class="conditions" style="width: 100%">
+        <div class="conditions">
           <h3>Observações</h3>
           <ol class="obs-list">
             <li>
@@ -93,10 +83,12 @@
               4. Instalação e serviços adicionais não inclusos, salvo quando
               expressamente mencionados na descrição dos itens.
             </li>
+            {{observacoes_adicionais}}
           </ol>
         </div>
       </div>
-      {{vendedor_info}}
+
+      <div class="vendedor-info-section">{{vendedor_info}}</div>
     </div>
   </body>
 </html>

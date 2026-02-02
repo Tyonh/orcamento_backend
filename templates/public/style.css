@@ -11,7 +11,8 @@ body {
   color: #333;
   font-size: 12px;
   line-height: 1.4;
-  margin-bottom: 200px;
+  margin: 0;
+  padding: 0;
 }
 
 .page-container {
@@ -20,13 +21,20 @@ body {
   background-color: #fff;
   margin: 20px auto;
   padding: 20px;
+
+  /* MUDANÇA: Padding bottom removido pois não usamos mais rodapé fixo */
+  /* padding-bottom: 100px; */
+
   box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
   position: relative;
 
-  /* Flexbox para empurrar o rodapé */
+  /* MUDANÇA: Flexbox para empurrar o rodapé */
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+
+  /* Evita quebra de página desnecessária */
+  page-break-inside: avoid;
+  break-inside: avoid;
 }
 
 /* --- Cabeçalho --- */
@@ -56,7 +64,7 @@ header {
 }
 
 .empresa-logo img {
-  max-width: 300px; /* Exemplo: define a largura máxima da imagem */
+  max-width: 300px;
   height: auto;
 }
 
@@ -151,118 +159,57 @@ tr:nth-child(even) {
   border-top: 2px solid #ccc;
 }
 
-/* --- Rodapé e Observações --- */
-.footer-section {
+/* --- Layout das Barras de Condição (Resumo) --- */
+.resumo-flex {
   display: flex;
-  margin-top: 20px;
   justify-content: space-between;
-}
+  align-items: center;
+  background-color: #eee;
+  padding: 8px 15px;
 
-.conditions {
-  flex: 1;
-  padding-right: 40px;
-}
+  /* MUDANÇA: Margens ajustadas para "colar" as barras */
+  margin-top: 0px;
+  margin-bottom: 2px; /* Pequeno respiro entre uma e outra */
 
-.conditions h3 {
-  font-size: 12px;
-  border-bottom: 1px solid #ddd;
-  margin-bottom: 5px;
-  padding-bottom: 5px;
-}
-
-.obs-list {
-  list-style: none;
-  color: #555;
-  font-size: 11px;
-}
-
-.obs-list li {
-  margin-bottom: 2px;
-}
-
-.totals-block {
-  width: 250px;
-  text-align: right;
-}
-
-.total-highlight {
-  font-size: 18px;
-  font-weight: bold;
-  color: #000;
-  margin-top: 10px;
-}
-
-/* --- Assinatura --- */
-.signature-section {
-  margin-top: 60px;
-  text-align: center;
+  border-top: 2px solid #ccc;
   page-break-inside: avoid;
 }
 
-.signature-line {
-  width: 300px;
-  border-top: 1px solid #000;
-  margin: 0 auto 10px auto;
+/* Remove margem extra se tiverem juntas */
+.resumo-flex + .resumo-flex {
+  margin-top: 0px;
+  border-top: 1px solid #ddd; /* Borda mais fina entre elas */
 }
 
-.consultant-name {
-  font-weight: bold;
-  font-size: 14px;
-  text-transform: uppercase;
+/* Espaçamento após o último resumo antes das observações */
+.resumo-flex:last-of-type {
+  margin-bottom: 15px;
 }
 
-.consultant-role {
-  font-size: 11px;
-  color: #666;
-  margin-bottom: 5px;
-}
-
-/* --- Media Query para Impressão --- */
-@media print {
-  body {
-    background-color: #fff;
-  }
-  .page-container {
-    width: 100%;
-    margin: 0;
-    padding: 20px; /* Margem menor para impressão */
-    box-shadow: none;
-  }
-  header {
-    /* Garante que o cabeçalho imprima cores de fundo se necessário (navegadores variam) */
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-}
-
-/* --- Novo Layout de Resumo --- */
-.resumo-flex {
-  display: flex;
-  justify-content: space-between; /* Um na ponta esquerda, outro na direita */
-  align-items: center;
-  background-color: #eee; /* Fundo cinza claro para destaque (igual a linha de total antiga) */
-  padding: 10px 15px;
-  margin-bottom: 15px; /* Espaço antes das observações */
-  border-top: 2px solid #ccc;
-}
-/* --- Ajuste Condições de Pagamento (Lado a Lado e Menor) --- */
 .condicoes-box {
-  display: flex; /* Faz os itens ficarem lado a lado */
-  align-items: baseline; /* Alinha o texto pela base das letras */
-  font-size: 10px; /* Tamanho da fonte bem menor */
+  display: flex;
+  align-items: baseline;
+  font-size: 10px;
 }
 
 .titulo-condicao {
   font-weight: bold;
   color: #666;
   text-transform: uppercase;
-  margin-right: 5px; /* Espacinho entre o título e o valor */
+  margin-right: 5px;
 }
 
 .valor-condicao {
   font-weight: bold;
-  color: #000; /* Cor preta para destaque do valor */
-  font-size: 11px; /* O valor pode ser levemente maior se quiser */
+  color: #000;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.valor-condicao strong {
+  font-size: 14px;
+  font-weight: bold;
+  color: #000;
 }
 
 .total-box {
@@ -277,7 +224,102 @@ tr:nth-child(even) {
 }
 
 .total-value {
-  font-size: 16px; /* Total bem grande */
-
+  font-size: 16px;
   color: #000;
+}
+
+/* --- Rodapé e Observações --- */
+.footer-section {
+  display: block;
+  margin-top: 20px;
+  clear: both;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.conditions {
+  width: 100%;
+  margin-bottom: 15px;
+}
+
+.conditions h3 {
+  font-size: 12px;
+  border-bottom: 1px solid #ddd;
+  margin-bottom: 5px;
+  padding-bottom: 5px;
+}
+
+.obs-list {
+  list-style: none;
+  color: #555;
+  font-size: 11px;
+  page-break-inside: avoid;
+  break-inside: avoid;
+  margin-bottom: 0;
+}
+
+.obs-list li {
+  margin-bottom: 2px;
+  page-break-inside: avoid;
+  break-inside: avoid;
+  line-height: 1.3;
+}
+
+/* --- Rodapé do Vendedor (Ajustado) --- */
+.vendedor-info-section {
+  /* MUDANÇA: Removemos position absolute/fixed */
+  position: relative;
+  width: 100%;
+  text-align: center;
+  padding: 20px;
+  border-top: 1px solid #ddd;
+  background-color: #fff;
+
+  /* MUDANÇA: Isso empurra o rodapé para o final da página flexível */
+  margin-top: auto;
+
+  page-break-inside: avoid;
+}
+
+.vendedor-info-section img {
+  max-width: 100%;
+  max-height: 80px;
+  object-fit: contain;
+}
+
+/* --- Media Query para Impressão --- */
+@media print {
+  body {
+    background-color: #fff;
+    margin: 0;
+    padding: 0;
+  }
+  .page-container {
+    width: 100%;
+    margin: 0;
+    padding: 15px;
+    box-shadow: none;
+    min-height: 280mm;
+
+    /* Garante Flexbox na impressão também */
+    display: flex;
+    flex-direction: column;
+    page-break-inside: avoid;
+  }
+
+  header {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .footer-section {
+    margin-top: 15px;
+  }
+
+  /* Garantia extra para o rodapé na impressão */
+  .vendedor-info-section {
+    position: relative !important;
+    bottom: auto !important;
+    margin-top: auto;
+  }
 }
