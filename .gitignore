@@ -1,4 +1,3 @@
 node_modules/
-.gitignore/
-clientes.db/
-produtos.db/
+clientes.db
+produtos.db
